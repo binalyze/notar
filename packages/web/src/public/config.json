@@ -1,0 +1,34 @@
+{
+  "company": {
+    "name": "Binalyze",
+    "website": "https://www.binalyze.com",
+    "logo": {
+      "dark": "/branding/company-logo-dark.svg",
+      "light": "/branding/company-logo-light.svg"
+    },
+    "social": {
+      "linkedin": "https://www.linkedin.com/company/binalyze",
+      "twitter": "https://x.com/binalyze"
+    },
+    "links": [
+      { "label": "Website", "url": "https://www.binalyze.com" },
+      { "label": "Binalyze AIR", "url": "https://www.binalyze.com/air" }
+    ]
+  },
+  "product": {
+    "tagline": "Free file signing and verification for Trust-First AI.",
+    "github": "https://github.com/binalyze/notar",
+    "npm": "@binalyze/notar"
+  },
+  "preloader": {
+    "logo": {
+      "dark": "/branding/preloader-dark.svg",
+      "light": "/branding/preloader-light.svg"
+    }
+  },
+  "og": {
+    "title": "Notar - Sign and Verify",
+    "description": "Free file signing and verification for Trust-First AI.",
+    "hero": "Trust-First AI"
+  }
+}

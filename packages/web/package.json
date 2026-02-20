@@ -1,0 +1,42 @@
+{
+  "name": "@binalyze/notar-web",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "pnpm reset && vite build && wrangler dev --config dist/notar/wrangler.json --port 5000",
+    "deploy": "CLOUDFLARE_ENV=prod vite build && wrangler deploy --config dist/notar/wrangler.json",
+    "reset": "rm -rf dist .wrangler node_modules/.vite",
+    "test": "pnpm reset && vite build && vitest run",
+    "typecheck": "vue-tsc --noEmit",
+    "lint": "oxlint ."
+  },
+  "dependencies": {
+    "@binalyze/notar": "workspace:*",
+    "@tailwindcss/vite": "^4.1.18",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "fflate": "^0.8.2",
+    "hono": "^4.11.4",
+    "hono-rate-limiter": "^0.5.3",
+    "lucide-vue-next": "^0.562.0",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.18",
+    "vue": "^3.5.25",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.25.2",
+    "@cloudflare/workers-types": "^4.20260219.0",
+    "@types/node": "^24.10.4",
+    "@vitejs/plugin-vue": "^6.0.4",
+    "@vue/typescript-plugin": "^3.2.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.0.0",
+    "vitest": "^4.0.17",
+    "vue-tsc": "^2.2.12",
+    "wrangler": "^4.67.0"
+  }
+}

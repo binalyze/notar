@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types"],
+    "noEmit": true,
+    "jsx": "preserve",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "plugins": [
+      { "name": "@vue/typescript-plugin", "languages": ["vue"] }
+    ]
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue", "worker.ts", "worker-configuration.d.ts"]
+}

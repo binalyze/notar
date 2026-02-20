@@ -1,0 +1,59 @@
+{
+  "name": "@binalyze/notar",
+  "version": "1.2.0",
+  "type": "module",
+  "description": "Ed25519 file signing and verification — library and CLI",
+  "license": "MIT",
+  "author": "Binalyze",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/binalyze/notar.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/binalyze/notar#readme",
+  "bugs": "https://github.com/binalyze/notar/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "bin": {
+    "notar": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "ed25519",
+    "signing",
+    "verification",
+    "notary",
+    "cryptography",
+    "digital-signature",
+    "trust",
+    "cli"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@noble/ed25519": "^2.2.3",
+    "citty": "^0.1.6",
+    "consola": "^3.4.2",
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

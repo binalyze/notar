@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notar - Trust-First AI</title>
+    <meta
+      name="description"
+      content="Free, open-source Ed25519 file signing and verification service."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://notar.binalyze.ai/" />
+    <meta property="og:title" content="Notar - Trust-First AI" />
+    <meta
+      property="og:description"
+      content="Free, open-source Ed25519 file signing and verification."
+    />
+    <meta property="og:image" content="https://notar.binalyze.ai/og-linkedin.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="627" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Notar - Trust-First AI" />
+    <meta
+      name="twitter:description"
+      content="Free, open-source Ed25519 file signing and verification."
+    />
+    <meta name="twitter:image" content="https://notar.binalyze.ai/og-twitter.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="lp-ignore" content="true" />
+    <style>
+      #preloader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff;
+        transition: opacity 0.4s ease;
+      }
+      #preloader img {
+        width: 200px;
+        height: auto;
+        animation: heartbeat 1.2s ease-in-out 3;
+      }
+      #preloader.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #app {
+        opacity: 0;
+      }
+      #app.ready {
+        opacity: 1;
+      }
+      @keyframes heartbeat {
+        0% { transform: scale(1); opacity: 0.8; }
+        10% { transform: scale(1.06); opacity: 1; }
+        20% { transform: scale(1); opacity: 0.8; }
+        30% { transform: scale(1.08); opacity: 1; }
+        45% { transform: scale(1); opacity: 0.8; }
+        100% { transform: scale(1); opacity: 0.8; }
+      }
+    </style>
+  </head>
+  <body data-1p-ignore data-lpignore="true">
+    <div id="preloader">
+      <img src="/branding/preloader-dark.svg" alt="Loading" />
+    </div>
+    <div id="app"></div>
+    <script>
+      window.__preloaderStart = Date.now();
+    </script>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

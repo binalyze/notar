@@ -1,0 +1,27 @@
+{
+  "name": "notar",
+  "main": "worker.ts",
+  "compatibility_date": "2025-09-15",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "nodejs_compat_populate_process_env"
+  ],
+  "vars": {
+    "BUILD_MODE": "development"
+  },
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "workers_dev": true,
+  "env": {
+    "prod": {
+      "name": "notar-prod",
+      "vars": {
+        "BUILD_MODE": "production"
+      }
+    }
+  }
+}

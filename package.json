@@ -1,0 +1,51 @@
+{
+  "name": "notar",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @binalyze/notar-web dev",
+    "preview": "pnpm build:core && pnpm --filter @binalyze/notar-web preview",
+    "build": "pnpm -r build",
+    "build:core": "pnpm --filter @binalyze/notar build",
+    "build:web": "pnpm --filter @binalyze/notar-web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm build:core && pnpm -r test",
+    "lint": "oxlint && eslint",
+    "format": "prettier --experimental-cli --write . | grep -v unchanged || true",
+    "deploy": "tsx scripts/setup-keys.ts && pnpm build && wrangler deploy -c packages/web/wrangler.jsonc --env prod",
+    "release": "pnpm --filter @binalyze/notar typecheck && pnpm --filter @binalyze/notar test && pnpm version:core minor && pnpm --filter @binalyze/notar publish --no-git-checks",
+    "release:dry": "pnpm --filter @binalyze/notar typecheck && pnpm --filter @binalyze/notar test && pnpm --filter @binalyze/notar publish --no-git-checks --dry-run",
+    "version:core": "pnpm --filter @binalyze/notar exec npm version",
+    "setup": "tsx scripts/setup-keys.ts",
+    "setup:force": "tsx scripts/setup-keys.ts --force",
+    "generate:og": "tsx scripts/generate-og-images.ts",
+    "generate:samples": "tsx scripts/sign-samples.ts",
+    "notar": "pnpm build:core && pnpm --filter @binalyze/notar exec notar",
+    "kill": "lsof -ti :5000 | xargs kill -9 2>/dev/null; echo 'Port 5000 cleared'"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@eslint/json": "^0.14.0",
+    "@prettier/plugin-oxc": "^0.1.3",
+    "@resvg/resvg-js": "^2.6.2",
+    "eslint": "^9.39.2",
+    "globals": "^16.5.0",
+    "jiti": "^2.6.1",
+    "prettier": "^3.7.4",
+    "satori": "^0.12.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.50.1"
+  },
+  "dependencies": {
+    "eslint-plugin-oxlint": "^1.37.0",
+    "oxlint": "^1.37.0",
+    "tsx": "^4.21.0"
+  },
+  "prettier": {
+    "plugins": [
+      "@prettier/plugin-oxc"
+    ]
+  },
+  "packageManager": "pnpm@10.27.0+sha512.72d699da16b1179c14ba9e64dc71c9a40988cbdc65c264cb0e489db7de917f20dcf4d64d8723625f2969ba52d4b7e2a1170682d9ac2a5dcaeaab732b7e16f04a"
+}

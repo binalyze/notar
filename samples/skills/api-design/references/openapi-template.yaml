@@ -1,0 +1,118 @@
+openapi: "3.1.0"
+info:
+  title: "{{API_TITLE}}"
+  description: "{{API_DESCRIPTION}}"
+  version: "{{API_VERSION}}"
+  contact:
+    name: API Support
+    email: api-support@example.com
+
+servers:
+  - url: https://api.example.com/v1
+    description: Production
+  - url: https://staging-api.example.com/v1
+    description: Staging
+
+paths:
+  /{{RESOURCE_PLURAL}}:
+    get:
+      summary: "List all {{RESOURCE_PLURAL}}"
+      operationId: "list{{RESOURCE_PASCAL}}"
+      tags:
+        - "{{RESOURCE_PASCAL}}"
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/SortParam"
+      responses:
+        "200":
+          description: "Paginated list of {{RESOURCE_PLURAL}}"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/{{RESOURCE_PASCAL}}List"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: "Create a new {{RESOURCE_SINGULAR}}"
+      operationId: "create{{RESOURCE_PASCAL}}"
+      tags:
+        - "{{RESOURCE_PASCAL}}"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Create{{RESOURCE_PASCAL}}"
+      responses:
+        "201":
+          description: "{{RESOURCE_PASCAL}} created"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /{{RESOURCE_PLURAL}}/{id}:
+    get:
+      summary: "Get a {{RESOURCE_SINGULAR}} by ID"
+      operationId: "get{{RESOURCE_PASCAL}}"
+      tags:
+        - "{{RESOURCE_PASCAL}}"
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: "{{RESOURCE_PASCAL}} found"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    SortParam:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [created_at, -created_at, updated_at, -updated_at]
+        default: -created_at
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Bad request — invalid input
+    Unauthorized:
+      description: Authentication required
+    NotFound:
+      description: Resource not found
+    UnprocessableEntity:
+      description: Validation error
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - BearerAuth: []
