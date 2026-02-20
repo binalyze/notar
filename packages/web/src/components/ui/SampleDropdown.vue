@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   FileQuestion,
+  Download,
 } from "lucide-vue-next";
 
 const GITHUB_RAW_BASE =
@@ -122,23 +123,28 @@ function btnClass(dir: string, name: string) {
 
 <template>
   <div class="mt-3">
-    <button
-      class="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      @click="toggle()"
-    >
-      <ChevronRight
-        :class="[
-          'w-4 h-4 transition-transform duration-150',
-          open && 'rotate-90',
-        ]"
-      />
-      <span class="font-medium">Or try a Sample SKILL</span>
-    </button>
+    <div class="flex items-center gap-2 text-muted-foreground my-3">
+      <div class="flex-1 border-t border-border" />
+      <span class="text-xs uppercase tracking-wide">or</span>
+      <div class="flex-1 border-t border-border" />
+    </div>
 
-    <div
-      v-if="open"
-      class="mt-2 border border-border rounded-lg bg-muted/50 overflow-hidden divide-y divide-border"
-    >
+    <div class="border border-border rounded-lg bg-muted/50 overflow-hidden">
+      <button
+        class="w-full flex items-center gap-1.5 px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        @click="toggle()"
+      >
+        <ChevronRight
+          :class="[
+            'w-4 h-4 transition-transform duration-150',
+            open && 'rotate-90',
+          ]"
+        />
+        <span class="font-medium">Try a Sample SKILL</span>
+        <span class="text-xs">(<a href="https://github.com/binalyze/notar/tree/main/samples" target="_blank" class="underline hover:text-foreground transition-colors" @click.stop>github.com/binalyze/notar/samples</a>)</span>
+      </button>
+
+      <div v-if="open" class="divide-y divide-border border-t border-border">
       <div
         v-for="section in SECTIONS"
         :key="section.dir"
@@ -152,25 +158,40 @@ function btnClass(dir: string, name: string) {
           >{{ section.label }}</span>
         </div>
         <div class="flex flex-wrap gap-1.5 ml-5">
-          <button
+          <div
             v-for="s in SAMPLES"
             :key="section.dir + '-' + s.name"
-            :disabled="!!loadingKey"
             :class="['inline-flex items-center text-xs rounded-md border overflow-hidden transition-colors', btnClass(section.dir, s.name)]"
-            @click="loadSample(section.dir, s.name)"
           >
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1">
+            <button
+              :disabled="!!loadingKey"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1"
+              @click="loadSample(section.dir, s.name)"
+            >
               <Loader2 v-if="loadingKey === section.dir + '/' + s.name" class="w-3 h-3 animate-spin" />
               <FileArchive v-else-if="s.name.endsWith('.zip')" class="w-3 h-3" :class="selectedKey === section.dir + '/' + s.name ? 'text-success' : 'text-muted-foreground'" />
               <FileText v-else class="w-3 h-3" :class="selectedKey === section.dir + '/' + s.name ? 'text-success' : 'text-muted-foreground'" />
               {{ s.label }}
-            </span>
-            <span class="border-l border-current/15 bg-black/[0.06] dark:bg-white/[0.06] px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ s.name.endsWith('.zip') ? 'ZIP' : 'MD' }}</span>
-          </button>
+            </button>
+            <button
+              :disabled="!!loadingKey"
+              class="border-l border-current/15 bg-black/[0.06] dark:bg-white/[0.06] px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide opacity-70"
+              @click="loadSample(section.dir, s.name)"
+            >{{ s.name.endsWith('.zip') ? 'ZIP' : 'MD' }}</button>
+            <a
+              :href="`${GITHUB_RAW_BASE}/${section.dir}/${s.name}`"
+              target="_blank"
+              class="border-l border-current/15 bg-black/[0.06] dark:bg-white/[0.06] px-1.5 py-1 opacity-70 hover:opacity-100 hover:text-primary transition-all"
+              @click.stop
+            >
+              <Download class="w-3 h-3" />
+            </a>
+          </div>
         </div>
         <p v-if="errorKey?.startsWith(section.dir + '/')" class="ml-5 mt-1.5 text-xs text-destructive">
           Failed to load sample. Please check your connection and try again.
         </p>
+      </div>
       </div>
     </div>
   </div>

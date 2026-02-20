@@ -4,7 +4,8 @@
   "compatibility_date": "2025-09-15",
   "compatibility_flags": [
     "nodejs_compat",
-    "nodejs_compat_populate_process_env"
+    "nodejs_compat_populate_process_env",
+    "global_fetch_strictly_public"
   ],
   "vars": {
     "BUILD_MODE": "development"
