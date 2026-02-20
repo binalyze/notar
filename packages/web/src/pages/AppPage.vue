@@ -15,6 +15,7 @@ const generatedPrivateKey = ref(devPrivateKey);
 const generatedPublicKey = ref(devPublicKey);
 const generatedDomain = ref("");
 const generatedKeyId = ref(devKeyId);
+const keysGenerated = ref(0);
 
 const tabs = [
   { id: "generate" as const, label: "Generate Keys", icon: KeyRound },
@@ -57,7 +58,7 @@ const tabs = [
           :dev-public-key="devPublicKey"
           :dev-private-key="devPrivateKey"
           :dev-key-id="devKeyId"
-          @generated="generatedPrivateKey = $event"
+          @generated="generatedPrivateKey = $event; keysGenerated++"
           @public-key-set="generatedPublicKey = $event"
           @domain-set="generatedDomain = $event"
           @key-id-set="generatedKeyId = $event"
@@ -72,6 +73,7 @@ const tabs = [
         <VerifyFile
           v-show="activeTab === 'verify'"
           :initial-public-key="generatedPublicKey"
+          :keys-generated="keysGenerated"
         />
       </div>
     </div>

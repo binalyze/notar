@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, nextTick } from "vue";
 import Button from "@/components/ui/Button.vue";
 import CodeBlock from "@/components/ui/CodeBlock.vue";
 import { XCircle, ShieldCheck } from "lucide-vue-next";
@@ -46,8 +46,23 @@ const validDomain = computed(() => {
 
 const completedSteps = ref(new Set<number>());
 const keyCopied = ref(false);
+const step2El = ref<HTMLElement | null>(null);
+const step3El = ref<HTMLElement | null>(null);
+const step4El = ref<HTMLElement | null>(null);
+
+function scrollTo(el: { value: HTMLElement | null }) {
+  nextTick(() => el.value?.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+
 function onStepCopied(step: number) {
   completedSteps.value.add(step);
+  if (step === 3) scrollTo(step4El);
+}
+
+function confirmKeyCopied() {
+  keyCopied.value = true;
+  onStepCopied(2);
+  scrollTo(step3El);
 }
 
 function generateKeyId(): string {
@@ -101,6 +116,7 @@ async function generate() {
     dnsTxtName.value = dnsTxt.fqdn;
     generated.value = true;
     keyCopied.value = false;
+    scrollTo(step2El);
     emit("generated", privateKeyB64);
     emit("publicKeySet", publicKeyB64);
     emit("domainSet", domain.value.trim());
@@ -211,7 +227,7 @@ async function validate() {
     </div>
 
     <!-- Step 2: Keys -->
-    <div :class="['space-y-3 transition-opacity', !generated && 'opacity-50']">
+    <div ref="step2El" :class="['space-y-3 transition-opacity scroll-mt-24', !generated && 'opacity-50']">
       <div class="flex items-center gap-3">
         <div
           :class="[
@@ -243,7 +259,7 @@ async function validate() {
         <Button
           :disabled="keyCopied"
           class="w-full"
-          @click="keyCopied = true; onStepCopied(2)"
+          @click="confirmKeyCopied"
         >
           I Copied My Private Key
         </Button>
@@ -251,7 +267,7 @@ async function validate() {
     </div>
 
     <!-- Step 3: Publish -->
-    <div :class="['space-y-3 transition-opacity', (!generated || !keyCopied) && 'opacity-50']">
+    <div ref="step3El" :class="['space-y-3 transition-opacity scroll-mt-24', (!generated || !keyCopied) && 'opacity-50']">
       <div class="flex items-center gap-3">
         <div
           :class="[
@@ -328,7 +344,7 @@ async function validate() {
     </div>
 
     <!-- Step 4: Validate -->
-    <div :class="['space-y-3 transition-opacity', (!generated || !keyCopied) && 'opacity-50']">
+    <div ref="step4El" :class="['space-y-3 transition-opacity scroll-mt-24', (!generated || !keyCopied) && 'opacity-50']">
       <div class="flex items-center gap-3">
         <div
           :class="[

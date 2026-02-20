@@ -16,7 +16,7 @@ interface FileMetadata {
   signatures?: SignatureEntry[];
 }
 
-const props = defineProps<{ initialPublicKey?: string }>();
+const props = defineProps<{ initialPublicKey?: string; keysGenerated?: number }>();
 
 const file = ref<File | null>(null);
 const dropZoneRef = ref<InstanceType<typeof DropZone>>();
@@ -28,6 +28,12 @@ const error = ref("");
 const metadata = ref<FileMetadata | null>(null);
 const result = ref<VerifyResult | null>(null);
 const resultEl = ref<HTMLElement | null>(null);
+const step2El = ref<HTMLElement | null>(null);
+const step3El = ref<HTMLElement | null>(null);
+
+function scrollTo(el: { value: HTMLElement | null }) {
+  nextTick(() => el.value?.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
 
 const step1Done = computed(() => {
   if (mode.value === "publicKey") return !!publicKey.value.trim();
@@ -41,6 +47,18 @@ watch(
     if (val) publicKey.value = val;
   },
 );
+
+watch(
+  () => props.keysGenerated,
+  (val) => {
+    if (val && props.initialPublicKey) {
+      publicKey.value = props.initialPublicKey;
+      mode.value = "publicKey";
+    }
+  },
+);
+
+watch(step1Done, (done) => { if (done) scrollTo(step2El); });
 
 function resetForm() {
   file.value = null;
@@ -69,6 +87,7 @@ function onFileSelect(f: File) {
   error.value = "";
   result.value = null;
   metadata.value = null;
+  scrollTo(step3El);
 
   const isZip = f.name.endsWith(".zip") || f.type === "application/zip";
   const isMd =
@@ -112,6 +131,34 @@ function onFileSelect(f: File) {
   }
 }
 
+async function callVerify(
+  content: string,
+  fileName: string,
+  verifyMode: "publisher" | "publicKey",
+): Promise<{ ok: boolean; data: VerifyResult | null; error: string }> {
+  const body: Record<string, unknown> = { content, fileName };
+  if (verifyMode === "publisher") {
+    body.fromAuthor = true;
+  } else {
+    if (!publicKey.value?.trim()) return { ok: false, data: null, error: "No public key" };
+    body.publicKey = publicKey.value.trim();
+  }
+  const res = await fetch("/api/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json()) as VerifyResult & { error?: string };
+  if (!res.ok) return { ok: false, data: null, error: data.error ?? `Server error (${res.status})` };
+  return { ok: true, data: data as VerifyResult, error: "" };
+}
+
+function canFallback(): "publisher" | "publicKey" | null {
+  if (mode.value === "publisher" && publicKey.value?.trim()) return "publicKey";
+  if (mode.value === "publicKey") return "publisher";
+  return null;
+}
+
 async function verify() {
   if (!file.value) return;
   loading.value = true;
@@ -121,31 +168,34 @@ async function verify() {
   try {
     const buf = await file.value.arrayBuffer();
     const content = uint8ToBase64(new Uint8Array(buf));
-    const body: Record<string, unknown> = {
-      content,
-      fileName: file.value.name,
-    };
-    if (mode.value === "publisher") {
-      body.fromAuthor = true;
-    } else {
-      if (!publicKey.value) {
-        error.value = "Please provide a public key";
-        return;
-      }
-      body.publicKey = publicKey.value.trim();
-    }
+    const fileName = file.value.name;
 
-    const res = await fetch("/api/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      error.value = data.error ?? `Server error (${res.status})`;
+    if (mode.value === "publicKey" && !publicKey.value?.trim()) {
+      error.value = "Please provide a public key";
       return;
     }
-    result.value = data as VerifyResult;
+
+    const primary = await callVerify(content, fileName, mode.value);
+    if (!primary.ok) {
+      error.value = primary.error;
+      return;
+    }
+
+    if (primary.data?.valid) {
+      result.value = primary.data;
+    } else {
+      const fallbackMode = canFallback();
+      if (fallbackMode) {
+        const fallback = await callVerify(content, fileName, fallbackMode);
+        if (fallback.ok && fallback.data?.valid) {
+          result.value = fallback.data;
+        } else {
+          result.value = primary.data;
+        }
+      } else {
+        result.value = primary.data;
+      }
+    }
 
     await nextTick();
     resultEl.value?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -246,7 +296,7 @@ watch(publicKey, () => {
     </div>
 
     <!-- Step 2: Select File -->
-    <div class="space-y-3">
+    <div ref="step2El" class="space-y-3 scroll-mt-24">
       <div class="flex items-center gap-3">
         <div
           :class="[
@@ -330,7 +380,7 @@ watch(publicKey, () => {
     </div>
 
     <!-- Step 3: Verify -->
-    <div :class="['space-y-3 transition-opacity', !step3Ready && 'opacity-50']">
+    <div ref="step3El" :class="['space-y-3 transition-opacity scroll-mt-24', !step3Ready && 'opacity-50']">
       <div class="flex items-center gap-3">
         <div
           :class="[
@@ -350,7 +400,7 @@ watch(publicKey, () => {
         Run verification to check the file's signature and integrity.
       </p>
       <div v-if="step3Ready" class="ml-10 space-y-4">
-        <div ref="resultEl" class="scroll-mt-20 space-y-4">
+        <div ref="resultEl" class="scroll-mt-24 space-y-4">
           <div
             v-if="error"
             class="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import Button from "@/components/ui/Button.vue";
 import DropZone from "@/components/ui/DropZone.vue";
 import SampleDropdown from "@/components/ui/SampleDropdown.vue";
@@ -35,6 +35,14 @@ const step2Done = computed(() => !!file.value);
 const step3Ready = computed(() => step1Done.value && step2Done.value);
 const step3Done = computed(() => step3Ready.value && !!name.value && !!description.value && !!version.value);
 const step4Ready = computed(() => step3Done.value);
+
+const step2El = ref<HTMLElement | null>(null);
+const step3El = ref<HTMLElement | null>(null);
+const step4El = ref<HTMLElement | null>(null);
+
+function scrollTo(el: { value: HTMLElement | null }) {
+  nextTick(() => el.value?.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
 
 // Document properties
 const name = ref("");
@@ -78,6 +86,9 @@ watch(() => props.initialPublisher, (val) => {
 });
 
 watch(privateKey, (val) => updatePublicKeyFromPrivate(val));
+
+watch(step1Done, (done) => { if (done) scrollTo(step2El); });
+watch(step3Done, (done) => { if (done) scrollTo(step4El); });
 
 function fileNameToSnakeCase(filename: string): string {
   return filename
@@ -151,6 +162,7 @@ function onFileSelect(f: File) {
           path,
           size: data.length,
         }));
+        scrollTo(step3El);
       } catch {
         zipContents.value = [];
       }
@@ -175,6 +187,7 @@ function onFileSelect(f: File) {
         if (!known.has(k)) extra[k] = v;
       }
       mdExtraFields.value = extra;
+      scrollTo(step3El);
     });
   }
 }
@@ -418,7 +431,7 @@ async function sign() {
     </div>
 
     <!-- Step 2: Select File -->
-    <div class="space-y-3">
+    <div ref="step2El" class="space-y-3 scroll-mt-24">
       <div class="flex items-center gap-3">
         <div
           :class="[
@@ -471,7 +484,7 @@ async function sign() {
     </div>
 
     <!-- Step 3: Document Properties -->
-    <div :class="['space-y-3 transition-opacity', !step3Ready && 'opacity-50']">
+    <div ref="step3El" :class="['space-y-3 transition-opacity scroll-mt-24', !step3Ready && 'opacity-50']">
       <div class="flex items-center gap-3">
         <div
           :class="[
@@ -529,7 +542,7 @@ async function sign() {
     </div>
 
     <!-- Step 4: Sign -->
-    <div :class="['space-y-3 transition-opacity', !step4Ready && 'opacity-50']">
+    <div ref="step4El" :class="['space-y-3 transition-opacity scroll-mt-24', !step4Ready && 'opacity-50']">
       <div class="flex items-center gap-3">
         <div
           :class="[
