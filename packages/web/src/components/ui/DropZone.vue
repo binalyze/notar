@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Upload, X, FileText, FileArchive } from "lucide-vue-next";
+import { File, X, FileText, FileArchive } from "lucide-vue-next";
 import { useFileUpload } from "@/composables/useFileUpload";
 
 const props = withDefaults(
@@ -61,6 +61,7 @@ const isZip = (name: string) => name.endsWith(".zip");
       isDragging
         ? 'border-primary bg-primary/5'
         : 'border-border hover:border-muted-foreground/50',
+      !file && 'cursor-pointer',
     ]"
     @drop="onDrop"
     @dragover="handleDragOver"
@@ -68,7 +69,13 @@ const isZip = (name: string) => name.endsWith(".zip");
     @click="!file && onPick()"
   >
     <template v-if="!file">
-      <Upload class="w-8 h-8 mx-auto mb-3 text-primary" />
+      <button
+        class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors mb-3"
+        @click.stop="onPick"
+      >
+        <File class="w-4 h-4" />
+        Select File
+      </button>
       <p class="text-sm text-muted-foreground">{{ label }}</p>
       <p class="text-xs text-muted-foreground mt-1">Supports .md and .zip files</p>
     </template>
