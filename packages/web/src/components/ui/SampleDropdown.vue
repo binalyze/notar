@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import {
   ChevronRight,
   Loader2,
@@ -32,7 +32,7 @@ interface SampleSection {
   labelClass: string;
 }
 
-const SECTIONS: SampleSection[] = [
+const ALL_SECTIONS: SampleSection[] = [
   {
     dir: "unsigned",
     label: "Unsigned",
@@ -62,6 +62,12 @@ const SECTIONS: SampleSection[] = [
     labelClass: "text-destructive",
   },
 ];
+
+const sections = computed(() =>
+  import.meta.env.PROD
+    ? ALL_SECTIONS.filter((s) => s.dir !== "signed/localhost")
+    : ALL_SECTIONS,
+);
 
 const emit = defineEmits<{
   select: [file: File];
@@ -146,7 +152,7 @@ function btnClass(dir: string, name: string) {
 
       <div v-if="open" class="divide-y divide-border border-t border-border">
       <div
-        v-for="section in SECTIONS"
+        v-for="section in sections"
         :key="section.dir"
         class="px-3 py-2.5"
       >
