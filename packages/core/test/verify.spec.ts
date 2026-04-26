@@ -470,6 +470,29 @@ signatures:
     expect(result.code).toBe(VerifyErrorCode.NO_SIGNATURES);
   });
 
+  it("rejects ZIP with extra unsigned file via verifyFromAuthor (UNEXPECTED_FILE)", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const zip = zipSync({ "safe.txt": enc("safe content") });
+    const signed = await signPackage(zip, PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    entries["evil.sh"] = enc("#!/bin/bash\nmalicious");
+    const tampered = zipSync(entries);
+
+    const pubKeyB64 = uint8ToBase64(publicKey);
+    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const result = await verifyFromAuthor(tampered, {
+      fetch: mockFetchWithKeys([
+        { keyId: "key_test", algorithm: "ed25519", publicKey: pubKeyB64, expires: futureDate },
+      ]) as typeof globalThis.fetch,
+      resolveTxt: false,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.UNEXPECTED_FILE);
+    const extra = result.details?.files!.find((f) => f.path === "evil.sh");
+    expect(extra?.valid).toBe(false);
+    expect(extra?.code).toBe(VerifyErrorCode.UNEXPECTED_FILE);
+  });
+
   it("unsigned ZIP returns MISSING_MANIFEST", async () => {
     const zip = zipSync({ "file.txt": enc("hello") });
     const result = await verifyFromAuthor(zip, {
