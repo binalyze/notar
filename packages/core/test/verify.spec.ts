@@ -493,6 +493,124 @@ signatures:
     expect(extra?.code).toBe(VerifyErrorCode.UNEXPECTED_FILE);
   });
 
+  it("rejects revoked HTTPS key even when DNS reports it valid (no race bypass)", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const pubKeyB64 = uint8ToBase64(publicKey);
+
+    const fetchMock = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/.well-known/notar-keys.json")) {
+        await new Promise((r) => setTimeout(r, 100));
+        return new Response(JSON.stringify({
+          keys: [{
+            keyId: "key_test", algorithm: "ed25519", publicKey: pubKeyB64,
+            expires: "2099-01-01T00:00:00.000Z", revoked: true,
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes("cloudflare-dns.com/dns-query")) {
+        const txt = `v=sk1; k=ed25519; p=${pubKeyB64}; exp=4102444800`;
+        return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 16, data: `"${txt}"` }] }), { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await verifyFromAuthor(signed, { fetch: fetchMock });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.KEY_REVOKED);
+    expect(result.details?.signers![0].keySource).toBe("https");
+  });
+
+  it("falls back to DNS only when HTTPS is unreachable", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const pubKeyB64 = uint8ToBase64(publicKey);
+
+    const fetchMock = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/.well-known/notar-keys.json")) {
+        throw new Error("HTTPS unreachable");
+      }
+      if (url.includes("cloudflare-dns.com/dns-query")) {
+        const txt = `v=sk1; k=ed25519; p=${pubKeyB64}; exp=4102444800`;
+        return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 16, data: `"${txt}"` }] }), { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await verifyFromAuthor(signed, { fetch: fetchMock });
+    expect(result.valid).toBe(true);
+    expect(result.details?.signers![0].keySource).toBe("dns");
+  });
+
+  it("treats HTTPS 200 + KEY_NOT_FOUND as authoritative; does not consult DNS", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const pubKeyB64 = uint8ToBase64(publicKey);
+
+    let dnsCalled = false;
+    const fetchMock = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/.well-known/notar-keys.json")) {
+        // HTTPS responds successfully but the manifest does not list key_test.
+        return new Response(JSON.stringify({
+          keys: [{
+            keyId: "other_key", algorithm: "ed25519", publicKey: pubKeyB64,
+            expires: "2099-01-01T00:00:00.000Z",
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes("cloudflare-dns.com/dns-query")) {
+        dnsCalled = true;
+        const txt = `v=sk1; k=ed25519; p=${pubKeyB64}; exp=4102444800`;
+        return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 16, data: `"${txt}"` }] }), { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await verifyFromAuthor(signed, { fetch: fetchMock });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.KEY_NOT_FOUND);
+    expect(result.details?.signers![0].keySource).toBe("https");
+    expect(dnsCalled).toBe(false);
+  });
+
+  it("no-keyId path: revoked HTTPS key + valid DNS key must not verify (tryAllKeys)", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    // Sign with a real keyId so signFile produces a valid signature, then
+    // strip the keyId from the front matter so verifyFromAuthor takes the
+    // tryAllKeys path.
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const stripped = signed.replace(/keyId: key_test/, "keyId: \"\"");
+    const pubKeyB64 = uint8ToBase64(publicKey);
+
+    const fetchMock = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/.well-known/notar-keys.json")) {
+        // HTTPS succeeds but the only listed key is revoked.
+        // fetchPublicKeys filters revoked keys, so candidates are empty,
+        // but the HTTPS source is still considered "available".
+        return new Response(JSON.stringify({
+          keys: [{
+            keyId: "key_test", algorithm: "ed25519", publicKey: pubKeyB64,
+            expires: "2099-01-01T00:00:00.000Z", revoked: true,
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes("cloudflare-dns.com/dns-query")) {
+        // DNS still publishes a valid copy of the same key — must not be used.
+        const txt = `v=sk1; k=ed25519; p=${pubKeyB64}; exp=4102444800`;
+        return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 16, data: `"${txt}"` }] }), { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await verifyFromAuthor(stripped, { fetch: fetchMock });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.KEY_NOT_FOUND);
+  });
+
   it("unsigned ZIP returns MISSING_MANIFEST", async () => {
     const zip = zipSync({ "file.txt": enc("hello") });
     const result = await verifyFromAuthor(zip, {
