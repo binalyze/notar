@@ -202,6 +202,21 @@ describe("verifyPackage", () => {
     expect(result.details?.signers![0].code).toBe(VerifyErrorCode.MALFORMED_SIGNATURE);
   });
 
+  it("rejects ZIP with extra unsigned file not in manifest", async () => {
+    const { publicKey, privateKey } = await generateKeyPair();
+    const zip = zipSync({ "safe.txt": enc("safe content") });
+    const signed = await signPackage(zip, PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    entries["evil.sh"] = enc("#!/bin/bash\nmalicious");
+    const tampered = zipSync(entries);
+    const result = await verifyPackage(tampered, publicKey);
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.UNEXPECTED_FILE);
+    const extra = result.details?.files!.find((f) => f.path === "evil.sh");
+    expect(extra?.valid).toBe(false);
+    expect(extra?.code).toBe(VerifyErrorCode.UNEXPECTED_FILE);
+  });
+
   it("verifies package with multiple files", async () => {
     const { publicKey, privateKey } = await generateKeyPair();
     const zip = zipSync({
