@@ -461,32 +461,28 @@ async function resolvePublicKey(
   options?: VerifyOptions,
 ): Promise<ResolvedKey> {
   const resolveTxt = options?.resolveTxt !== false;
+  const httpsResult = await resolvePublicKeyFromHttps(author, keyId, options);
 
-  const httpsPromise = resolvePublicKeyFromHttps(author, keyId, options);
+  // HTTPS is authoritative whenever it produces a definitive answer:
+  //  - A key (valid, revoked, or expired).
+  //  - KEY_NOT_FOUND from a successful response (publisher's manifest excludes the keyId).
+  // DNS is consulted only as a fallback when HTTPS is unreachable
+  // (network error, non-OK response, or otherwise no usable answer).
+  const httpsAuthoritative =
+    !!httpsResult.key || httpsResult.code === VerifyErrorCode.KEY_NOT_FOUND;
 
-  if (!resolveTxt) {
-    return httpsPromise;
-  }
-
-  const dnsPromise = fetchPublicKeyFromDns(author, keyId, {
-    fetch: options?.fetch,
-    now: options?.now,
-  }).then((r): ResolvedKey => ({
-    key: r.key,
-    code: r.code,
-    source: r.source,
-  }));
-
-  try {
-    return await Promise.any([
-      httpsPromise.then((r) => r.key ? r : Promise.reject(r)),
-      dnsPromise.then((r) => r.key ? r : Promise.reject(r)),
-    ]);
-  } catch {
-    // Both failed — return HTTPS result for its error info
-    const httpsResult = await httpsPromise;
+  if (!resolveTxt || httpsAuthoritative) {
     return httpsResult;
   }
+
+  const dns = await fetchPublicKeyFromDns(author, keyId, {
+    fetch: options?.fetch,
+    now: options?.now,
+  });
+  if (dns.key) {
+    return { key: dns.key, code: dns.code, source: "dns" };
+  }
+  return httpsResult;
 }
 
 // -- Unified verify -----------------------------------------------------------
@@ -518,20 +514,24 @@ async function tryAllKeys(
   options?: VerifyOptions,
 ): Promise<SignerResult> {
   const candidates: Array<{ key: PublicKeyEntry; source: "https" | "dns" }> = [];
+  let httpsAvailable = false;
 
   try {
     const keys = await fetchPublicKeys(publisher, options);
+    httpsAvailable = true;
     for (const key of keys) candidates.push({ key, source: "https" });
   } catch { /* HTTPS unavailable */ }
 
-  if (options?.resolveTxt !== false) {
+  // Only consult DNS when HTTPS is unreachable. Otherwise HTTPS is authoritative
+  // (including for revocation), so a now-revoked-but-stale DNS record cannot
+  // override the publisher's HTTPS key manifest.
+  if (!httpsAvailable && options?.resolveTxt !== false) {
     const dns = await fetchPublicKeyFromDns(publisher, "key", {
       fetch: options?.fetch,
       now: options?.now,
     });
     if (dns.key && !dns.code) {
-      const dup = candidates.some((c) => c.key.publicKey === dns.key!.publicKey);
-      if (!dup) candidates.push({ key: dns.key, source: "dns" });
+      candidates.push({ key: dns.key, source: "dns" });
     }
   }
 
