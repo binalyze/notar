@@ -129,6 +129,21 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
     .join("");
 }
 
+function findUnexpectedFiles(
+  manifest: PackageManifest,
+  files: Map<string, Uint8Array>,
+): FileIntegrityResult[] {
+  const allowed = new Set(Object.keys(manifest.files));
+  const extras: FileIntegrityResult[] = [];
+  for (const path of files.keys()) {
+    if (path === "MANIFEST.json") continue;
+    if (!allowed.has(path)) {
+      extras.push({ path, valid: false, code: VerifyErrorCode.UNEXPECTED_FILE });
+    }
+  }
+  return extras;
+}
+
 async function verifyManifestHashes(
   manifest: PackageManifest,
   files: Map<string, Uint8Array>,
@@ -235,16 +250,15 @@ export async function verifyPackage(
     };
   }
 
-  const fileResults = await verifyManifestHashes(manifest, files);
+  const extras = findUnexpectedFiles(manifest, files);
+  const fileResults = [...(await verifyManifestHashes(manifest, files)), ...extras];
   const hasFailedFile = fileResults.some((f) => !f.valid);
   if (hasFailedFile) {
     const firstFailed = fileResults.find((f) => !f.valid)!;
     return {
       valid: false,
       code: firstFailed.code,
-      reason: firstFailed.code === VerifyErrorCode.MISSING_FILE
-        ? `Missing file: ${firstFailed.path}`
-        : `Hash mismatch for file: ${firstFailed.path}`,
+      reason: failedFileReason(firstFailed),
       details: { ...docMeta(manifest), signers, files: fileResults },
     };
   }
@@ -253,6 +267,14 @@ export async function verifyPackage(
     valid: true,
     details: { ...docMeta(manifest), signers, files: fileResults },
   };
+}
+
+function failedFileReason(f: FileIntegrityResult): string {
+  switch (f.code) {
+    case VerifyErrorCode.MISSING_FILE: return `Missing file: ${f.path}`;
+    case VerifyErrorCode.UNEXPECTED_FILE: return `Unexpected file not in manifest: ${f.path}`;
+    default: return `Hash mismatch for file: ${f.path}`;
+  }
 }
 
 // -- DNS TXT ------------------------------------------------------------------
@@ -709,16 +731,15 @@ async function verifyZipFromAuthor(
     files.set(path, data);
   }
 
-  const fileResults = await verifyManifestHashes(manifest, files);
+  const extras = findUnexpectedFiles(manifest, files);
+  const fileResults = [...(await verifyManifestHashes(manifest, files)), ...extras];
   const hasFailedFile = fileResults.some((f) => !f.valid);
   if (hasFailedFile) {
     const firstFailed = fileResults.find((f) => !f.valid)!;
     return {
       valid: false,
       code: firstFailed.code,
-      reason: firstFailed.code === VerifyErrorCode.MISSING_FILE
-        ? `Missing file: ${firstFailed.path}`
-        : `Hash mismatch for file: ${firstFailed.path}`,
+      reason: failedFileReason(firstFailed),
       details: { ...docMeta(manifest), signers, files: fileResults },
     };
   }
