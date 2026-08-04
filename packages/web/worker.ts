@@ -31,14 +31,14 @@ app.post("*", (c, next) => {
 });
 
 app.post("/verify", async (c) => {
-  let body: { content?: string; fileName?: string; publicKey?: string; fromAuthor?: boolean };
+  let body: { content?: string; fileName?: string; publicKey?: string; fromAuthor?: boolean; expectedPublisher?: string };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const { content, fileName, publicKey: publicKeyB64, fromAuthor } = body;
+  const { content, fileName, publicKey: publicKeyB64, fromAuthor, expectedPublisher } = body;
   if (!content || !fileName) {
     return c.json({ error: "Missing content or fileName" }, 400);
   }
@@ -56,7 +56,10 @@ app.post("/verify", async (c) => {
 
   if (fromAuthor) {
     const devMode = c.env.BUILD_MODE !== "production";
-    const result = await verifyFromAuthor(input, { fetch: assetFetch(c.env.ASSETS, devMode) });
+    const result = await verifyFromAuthor(input, {
+      fetch: assetFetch(c.env.ASSETS, devMode),
+      ...(expectedPublisher && { expectedPublisher }),
+    });
     return c.json(result);
   }
 

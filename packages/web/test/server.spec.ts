@@ -85,6 +85,32 @@ function apiTests() {
     expect(await res.json()).toEqual({ error: "Missing content or fileName" });
   });
 
+  test("POST /api/verify fromAuthor accepts expectedPublisher and runs keyless path", async () => {
+    const unsigned = [
+      "---",
+      "name: test-doc",
+      "description: unsigned sample",
+      'version: "1.0"',
+      "author: example.com",
+      "---",
+      "# Body",
+    ].join("\n");
+    const res = await fetch(`${BASE}/api/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        content: Buffer.from(unsigned).toString("base64"),
+        fileName: "test-doc.md",
+        fromAuthor: true,
+        expectedPublisher: "vendor.example",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { valid: boolean; code?: string };
+    expect(json.valid).toBe(false);
+    expect(json.code).toBe("NO_SIGNATURES");
+  });
+
   test("POST /api/lookup with missing fields returns 400", async () => {
     const res = await fetch(`${BASE}/api/lookup`, {
       method: "POST",
