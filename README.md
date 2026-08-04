@@ -71,9 +71,20 @@ const signed = await sign(markdown, privateKey, {
 const result = await verify(signed, publicKey);
 // { valid: true, details: { author: "example.com", signers: [...] } }
 
-// Or verify without a key -- auto-fetches from the author's domain
-const result2 = await verifyFromAuthor(signed);
+// Or verify without a key -- auto-fetches from the author's domain.
+// Bind the verdict to an identity you trust with expectedPublisher: the
+// result is valid only if a signature from that exact publisher verifies.
+const result2 = await verifyFromAuthor(signed, { expectedPublisher: "example.com" });
 ```
+
+> **Verdict semantics (v2):** `verifyFromAuthor` binds `valid` to a trusted identity.
+> Without `expectedPublisher`, the verdict is a conjunction — the file is valid only
+> if it carries at least one signature and **every** signature present verifies, so a
+> single failing signature can no longer be masked by another passing one. With
+> `expectedPublisher`, only that publisher's signatures decide the verdict. The
+> `author` field is a freeform, unauthenticated string and is surfaced as *claimed*;
+> the authenticated identity is the `publisher` of a validated signature
+> (`details.trustedPublisher` when `expectedPublisher` matched).
 
 The `sign()` and `verify()` functions are overloaded: pass a `string` for markdown files, or a `Uint8Array` for ZIP packages.
 
@@ -155,11 +166,14 @@ Verify a signed `.md` or `.zip` file.
 
 ```bash
 notar verify signed.md --public-key <base64>
-notar verify signed.md                         # auto-fetches key from author domain
+notar verify signed.md                          # auto-fetches key from publisher domain
+notar verify signed.md --expect example.com     # require a valid signature from example.com
 notar verify signed.zip --json                  # output JSON result
 ```
 
-Without `--public-key`, the CLI resolves keys automatically from the publisher's domain (see [Key Discovery](#key-discovery)). Exits with code `0` on success, `1` on failure.
+Without `--public-key`, the CLI resolves keys automatically from the publisher's domain (see [Key Discovery](#key-discovery)). Use `--expect <publisher>` to require a valid signature from a specific domain — verification then passes only for that publisher.
+
+Exits with code `0` on success, `1` on failure. A file with a mix of passing and failing signatures exits `1` (non-zero) and prints a tampering warning; the CLI never reports "Valid Signature" or exits `0` when any signature present failed. The displayed `author` is labeled *claimed, unverified*.
 
 ## Customization
 
@@ -259,7 +273,7 @@ Notar supports two file formats, both using Ed25519 signatures.
 
 ### Markdown (`.md`)
 
-Markdown files use YAML front matter. Required fields: `name`, `description`, `version`. The `author` field is optional and accepts any string. Signatures are appended to a `signatures` array in the front matter:
+Markdown files use YAML front matter. Required fields: `name`, `description`, `version`. The `author` field is optional and accepts any string — it is **not authenticated** and must not be treated as a verified identity; the trusted identity is the `publisher` of a validated signature. Signatures are appended to a `signatures` array in the front matter:
 
 ```yaml
 ---

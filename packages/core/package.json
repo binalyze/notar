@@ -1,6 +1,6 @@
 {
   "name": "@binalyze/notar",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Ed25519 file signing and verification — library and CLI",
   "license": "MIT",
