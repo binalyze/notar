@@ -680,7 +680,7 @@ function computeKeylessVerdict(
       return {
         valid: false,
         code: failing.code ?? VerifyErrorCode.SIGNATURE_MISMATCH,
-        reason: `Signature from expected publisher "${expectedPublisher}" is invalid`,
+        reason: failing.reason ?? `Verification failed for expected publisher "${expectedPublisher}"`,
         identityVerified: false,
       };
     }

@@ -49,7 +49,7 @@ const anchorLabel = computed(() => {
   if (!result.value || !resultAnchor.value) return "";
   return resultAnchor.value === "publicKey"
     ? "Verified against: your pasted public key"
-    : "Verified against: publisher-resolved key (from the file's declared domain)";
+    : "Verified against: publisher-resolved key(s) from publisher domain(s) in the file";
 });
 const step3Ready = computed(() => !!file.value && step1Done.value);
 

@@ -718,6 +718,24 @@ describe("verifyFromAuthor identity binding", () => {
     expect(result.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
   });
 
+  it("preserves a failing expected publisher's reason", async () => {
+    const vendor = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, vendor.privateKey, {
+      keyId: "vk",
+      publisher: "vendor.example",
+    });
+
+    const result = await verifyFromAuthor(signed, {
+      fetch: mockMultiPublisher({}),
+      resolveTxt: false,
+      expectedPublisher: "vendor.example",
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.KEY_NOT_FOUND);
+    expect(result.reason).toBe("Could not resolve public key for vendor.example (vk)");
+  });
+
   it("single valid signer without expectedPublisher stays valid but identityVerified is false", async () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });

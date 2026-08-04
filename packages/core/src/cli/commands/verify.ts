@@ -93,16 +93,24 @@ export const verify = defineCommand({
       const input: string | Uint8Array = ext === ".md"
         ? readFileSync(filePath, "utf-8")
         : new Uint8Array(readFileSync(filePath));
+      const expectedPublisher = args.expect?.trim();
 
       if (args["public-key"] && args.expect) {
         console.error("Error: --expect cannot be combined with --public-key");
+        process.exit(2);
+      }
+      if (args.expect && !expectedPublisher) {
+        console.error("Error: --expect must not be empty");
         process.exit(2);
       }
 
       if (args["public-key"]) {
         result = await notarVerify(input, base64ToUint8(args["public-key"]));
       } else {
-        result = await verifyFromAuthor(input, args.expect ? { expectedPublisher: args.expect } : undefined);
+        result = await verifyFromAuthor(
+          input,
+          expectedPublisher ? { expectedPublisher } : undefined,
+        );
       }
     } catch (e) {
       console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);

@@ -26,6 +26,14 @@ const props = defineProps<{
 
 const { copied, copy } = useCopy();
 
+const verificationLabel = computed(() =>
+  props.valid ? "Verification: Valid" : "Verification: Failed",
+);
+
+const verificationContainerClass = computed(() =>
+  props.valid ? "bg-success/10 border-success/30" : "bg-destructive/10 border-destructive/30",
+);
+
 const FORMAT_ERROR_CODES = new Set<string>([
   VerifyErrorCode.NO_SIGNATURES,
   VerifyErrorCode.MISSING_MANIFEST,
@@ -159,6 +167,9 @@ const signaturesLabel = computed(() => {
 
 function buildReport(): string {
   const lines: string[] = [];
+  lines.push(verificationLabel.value);
+  if (!props.valid && props.code) lines.push(`Reason: ${props.code}${props.reason ? ` — ${props.reason}` : ""}`);
+  lines.push("");
   if (props.details?.signers) {
     const valid = props.details.signers.filter((s) => s.valid).length;
     lines.push(`Signature: ${valid}/${props.details.signers.length} Valid`);
@@ -191,6 +202,17 @@ function buildReport(): string {
 
 <template>
   <div class="space-y-4">
+    <div :class="['rounded-lg border', verificationContainerClass]">
+      <div class="p-4">
+        <div class="flex items-center gap-3">
+          <ShieldCheck v-if="valid" class="w-6 h-6 shrink-0 text-success" />
+          <ShieldX v-else class="w-6 h-6 shrink-0 text-destructive" />
+          <span class="font-semibold text-lg text-foreground">{{ verificationLabel }}</span>
+        </div>
+        <p v-if="!valid && reason" class="text-sm text-muted-foreground mt-1 ml-9">{{ reason }}</p>
+      </div>
+    </div>
+
     <!-- Signatures Section -->
     <div v-if="sortedSigners.length > 0" :class="['rounded-lg border', signaturesContainerClass]">
       <div class="p-4">
