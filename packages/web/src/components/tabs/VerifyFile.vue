@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import Button from "@/components/ui/Button.vue";
 import DropZone from "@/components/ui/DropZone.vue";
 import SampleDropdown from "@/components/ui/SampleDropdown.vue";
@@ -32,6 +32,9 @@ const resultAnchor = ref<"publisher" | "publicKey" | null>(null);
 const resultEl = ref<HTMLElement | null>(null);
 const step2El = ref<HTMLElement | null>(null);
 const step3El = ref<HTMLElement | null>(null);
+let pkTimer: ReturnType<typeof setTimeout>;
+let epTimer: ReturnType<typeof setTimeout>;
+let runSeq = 0;
 
 function scrollTo(el: { value: HTMLElement | null }) {
   nextTick(() => el.value?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -70,6 +73,9 @@ watch(
 watch(step1Done, (done) => { if (done) scrollTo(step2El); });
 
 function resetForm() {
+  runSeq++;
+  clearTimeout(pkTimer);
+  clearTimeout(epTimer);
   file.value = null;
   mode.value = "publisher";
   publicKey.value = props.initialPublicKey ?? "";
@@ -146,14 +152,16 @@ async function callVerify(
   content: string,
   fileName: string,
   verifyMode: "publisher" | "publicKey",
+  pinnedKey: string,
+  expected: string,
 ): Promise<{ ok: boolean; data: VerifyResult | null; error: string }> {
   const body: Record<string, unknown> = { content, fileName };
   if (verifyMode === "publisher") {
     body.fromAuthor = true;
-    if (expectedPublisher.value.trim()) body.expectedPublisher = expectedPublisher.value.trim();
+    if (expected) body.expectedPublisher = expected;
   } else {
-    if (!publicKey.value?.trim()) return { ok: false, data: null, error: "No public key" };
-    body.publicKey = publicKey.value.trim();
+    if (!pinnedKey) return { ok: false, data: null, error: "No public key" };
+    body.publicKey = pinnedKey;
   }
   const res = await fetch("/api/verify", {
     method: "POST",
@@ -165,33 +173,41 @@ async function callVerify(
   return { ok: true, data: data as VerifyResult, error: "" };
 }
 
-// Only allow a fallback that *strengthens* the trust anchor (publisher-resolved
-// -> user-pinned key). Never downgrade a user-pinned public key back to a
-// publisher-resolved key: that would silently discard the user's chosen trust
-// anchor and re-verify against a key named inside the untrusted file (VOC-3035).
-function canFallback(): "publicKey" | null {
-  if (mode.value === "publisher" && publicKey.value?.trim()) return "publicKey";
+// Never downgrade a pinned key, or discard an expected publisher.
+function canFallback(
+  verifyMode: "publisher" | "publicKey",
+  pinnedKey: string,
+  expected: string,
+): "publicKey" | null {
+  if (verifyMode === "publisher" && pinnedKey && !expected) return "publicKey";
   return null;
 }
 
 async function verify() {
-  if (!file.value) return;
+  const selectedFile = file.value;
+  if (!selectedFile) return;
+  const runId = ++runSeq;
+  const verifyMode = mode.value;
+  const pinnedKey = publicKey.value.trim();
+  const expected = expectedPublisher.value.trim();
   loading.value = true;
   error.value = "";
   result.value = null;
   resultAnchor.value = null;
 
   try {
-    const buf = await file.value.arrayBuffer();
+    const buf = await selectedFile.arrayBuffer();
     const content = uint8ToBase64(new Uint8Array(buf));
-    const fileName = file.value.name;
+    const fileName = selectedFile.name;
 
-    if (mode.value === "publicKey" && !publicKey.value?.trim()) {
+    if (verifyMode === "publicKey" && !pinnedKey) {
+      if (runId !== runSeq) return;
       error.value = "Please provide a public key";
       return;
     }
 
-    const primary = await callVerify(content, fileName, mode.value);
+    const primary = await callVerify(content, fileName, verifyMode, pinnedKey, expected);
+    if (runId !== runSeq) return;
     if (!primary.ok) {
       error.value = primary.error;
       return;
@@ -199,32 +215,36 @@ async function verify() {
 
     if (primary.data?.valid) {
       result.value = primary.data;
-      resultAnchor.value = mode.value;
+      resultAnchor.value = verifyMode;
     } else {
-      const fallbackMode = canFallback();
+      const fallbackMode = canFallback(verifyMode, pinnedKey, expected);
       if (fallbackMode) {
-        const fallback = await callVerify(content, fileName, fallbackMode);
+        const fallback = await callVerify(content, fileName, fallbackMode, pinnedKey, expected);
+        if (runId !== runSeq) return;
         if (fallback.ok && fallback.data?.valid) {
           result.value = fallback.data;
           resultAnchor.value = fallbackMode;
         } else {
           result.value = primary.data;
-          resultAnchor.value = mode.value;
+          resultAnchor.value = verifyMode;
         }
       } else {
         result.value = primary.data;
-        resultAnchor.value = mode.value;
+        resultAnchor.value = verifyMode;
       }
     }
 
     await nextTick();
+    if (runId !== runSeq) return;
     resultEl.value?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) {
+    if (runId !== runSeq) return;
     error.value = e instanceof Error ? e.message : "Verification failed";
     await nextTick();
+    if (runId !== runSeq) return;
     resultEl.value?.scrollIntoView({ behavior: "smooth", block: "start" });
   } finally {
-    loading.value = false;
+    if (runId === runSeq) loading.value = false;
   }
 }
 
@@ -234,7 +254,6 @@ watch([file, mode], () => {
   else if (mode.value === "publicKey" && publicKey.value.trim()) verify();
 });
 
-let pkTimer: ReturnType<typeof setTimeout>;
 watch(publicKey, () => {
   clearTimeout(pkTimer);
   if (!file.value || mode.value !== "publicKey" || !publicKey.value.trim())
@@ -242,11 +261,16 @@ watch(publicKey, () => {
   pkTimer = setTimeout(() => verify(), 600);
 });
 
-let epTimer: ReturnType<typeof setTimeout>;
 watch(expectedPublisher, () => {
   clearTimeout(epTimer);
   if (!file.value || mode.value !== "publisher") return;
   epTimer = setTimeout(() => verify(), 600);
+});
+
+onUnmounted(() => {
+  runSeq++;
+  clearTimeout(pkTimer);
+  clearTimeout(epTimer);
 });
 </script>
 

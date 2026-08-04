@@ -31,7 +31,7 @@ app.post("*", (c, next) => {
 });
 
 app.post("/verify", async (c) => {
-  let body: { content?: string; fileName?: string; publicKey?: string; fromAuthor?: boolean; expectedPublisher?: string };
+  let body: { content?: string; fileName?: string; publicKey?: string; fromAuthor?: boolean; expectedPublisher?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -41,6 +41,12 @@ app.post("/verify", async (c) => {
   const { content, fileName, publicKey: publicKeyB64, fromAuthor, expectedPublisher } = body;
   if (!content || !fileName) {
     return c.json({ error: "Missing content or fileName" }, 400);
+  }
+  if (expectedPublisher !== undefined && typeof expectedPublisher !== "string") {
+    return c.json({ error: "expectedPublisher must be a string" }, 400);
+  }
+  if (expectedPublisher && !fromAuthor) {
+    return c.json({ error: "expectedPublisher requires fromAuthor to be true" }, 400);
   }
 
   const estimatedSize = Math.ceil(content.length * 0.75);
@@ -58,7 +64,7 @@ app.post("/verify", async (c) => {
     const devMode = c.env.BUILD_MODE !== "production";
     const result = await verifyFromAuthor(input, {
       fetch: assetFetch(c.env.ASSETS, devMode),
-      ...(expectedPublisher && { expectedPublisher }),
+      ...(expectedPublisher?.trim() && { expectedPublisher: expectedPublisher.trim() }),
     });
     return c.json(result);
   }

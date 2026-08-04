@@ -85,30 +85,57 @@ function apiTests() {
     expect(await res.json()).toEqual({ error: "Missing content or fileName" });
   });
 
-  test("POST /api/verify fromAuthor accepts expectedPublisher and runs keyless path", async () => {
-    const unsigned = [
+  test("POST /api/verify forwards expectedPublisher to keyless verification", async () => {
+    const signedByUnexpectedPublisher = [
       "---",
       "name: test-doc",
-      "description: unsigned sample",
+      "description: signed sample",
       'version: "1.0"',
       "author: example.com",
+      "signatures:",
+      "  - keyId: test-key",
+      "    publisher: attacker.invalid",
+      '    value: "rsa:bad"',
       "---",
       "# Body",
     ].join("\n");
+
+    const verify = async (expectedPublisher?: string) => {
+      const res = await fetch(`${BASE}/api/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: Buffer.from(signedByUnexpectedPublisher).toString("base64"),
+          fileName: "test-doc.md",
+          fromAuthor: true,
+          ...(expectedPublisher && { expectedPublisher }),
+        }),
+      });
+      expect(res.status).toBe(200);
+      return await res.json() as { valid: boolean; code?: string };
+    };
+
+    const unscoped = await verify();
+    const scoped = await verify("vendor.example");
+
+    expect(unscoped.valid).toBe(false);
+    expect(unscoped.code).toBe("NO_MATCHING_SIGNATURE");
+    expect(scoped.valid).toBe(false);
+    expect(scoped.code).toBe("UNTRUSTED_PUBLISHER");
+  });
+
+  test("POST /api/verify rejects expectedPublisher without fromAuthor", async () => {
     const res = await fetch(`${BASE}/api/verify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        content: Buffer.from(unsigned).toString("base64"),
+        content: Buffer.from("# Body").toString("base64"),
         fileName: "test-doc.md",
-        fromAuthor: true,
         expectedPublisher: "vendor.example",
       }),
     });
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { valid: boolean; code?: string };
-    expect(json.valid).toBe(false);
-    expect(json.code).toBe("NO_SIGNATURES");
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "expectedPublisher requires fromAuthor to be true" });
   });
 
   test("POST /api/lookup with missing fields returns 400", async () => {

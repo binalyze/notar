@@ -657,9 +657,12 @@ describe("verifyFromAuthor identity binding", () => {
     });
 
     expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
     const vendorSig = result.details?.signers!.find((s) => s.publisher === "vendor.example");
+    const attackerSig = result.details?.signers!.find((s) => s.publisher === "attacker.example");
     expect(vendorSig?.valid).toBe(false);
     expect(vendorSig?.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
+    expect(attackerSig?.valid).toBe(true);
     expect(result.details?.identityVerified).toBe(false);
   });
 
@@ -729,6 +732,25 @@ describe("verifyFromAuthor identity binding", () => {
     expect(result.details?.trustedPublisher).toBeUndefined();
   });
 
+  it("two valid signers without expectedPublisher stay valid", async () => {
+    const vendor = await generateKeyPair();
+    const other = await generateKeyPair();
+    let doc = await signFile(SAMPLE_MD, vendor.privateKey, { keyId: "vk", publisher: "vendor.example" });
+    doc = await signFile(doc, other.privateKey, { keyId: "ok", publisher: "other.example" });
+
+    const result = await verifyFromAuthor(doc, {
+      fetch: mockMultiPublisher({
+        "vendor.example": [keyEntry("vk", uint8ToBase64(vendor.publicKey))],
+        "other.example": [keyEntry("ok", uint8ToBase64(other.publicKey))],
+      }),
+      resolveTxt: false,
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.details?.signers?.every((s) => s.valid)).toBe(true);
+    expect(result.details?.identityVerified).toBe(false);
+  });
+
   it("ZIP: tampered package + attacker co-signature is invalid", async () => {
     const vendor = await generateKeyPair();
     const attacker = await generateKeyPair();
@@ -751,5 +773,37 @@ describe("verifyFromAuthor identity binding", () => {
     });
 
     expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
+    const vendorSig = result.details?.signers?.find((s) => s.publisher === "vendor.example");
+    const attackerSig = result.details?.signers?.find((s) => s.publisher === "attacker.example");
+    expect(vendorSig?.valid).toBe(false);
+    expect(vendorSig?.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
+    expect(attackerSig?.valid).toBe(true);
+    expect(result.details?.identityVerified).toBe(false);
+  });
+
+  it("ZIP: hash failure clears expected-publisher identity", async () => {
+    const vendor = await generateKeyPair();
+    const zip = zipSync({ "main.py": enc("print('ok')") });
+    const signed = await signPackage(
+      zip,
+      { ...PKG_META, keyId: "vk", author: "vendor.example", publisher: "vendor.example" },
+      vendor.privateKey,
+    );
+    const entries = unzipSync(signed);
+    entries["main.py"] = enc("print('tampered')");
+
+    const result = await verifyFromAuthor(zipSync(entries), {
+      fetch: mockMultiPublisher({
+        "vendor.example": [keyEntry("vk", uint8ToBase64(vendor.publicKey))],
+      }),
+      resolveTxt: false,
+      expectedPublisher: "vendor.example",
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.HASH_MISMATCH);
+    expect(result.details?.identityVerified).toBe(false);
+    expect(result.details?.trustedPublisher).toBeUndefined();
   });
 });

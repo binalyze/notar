@@ -94,6 +94,11 @@ export const verify = defineCommand({
         ? readFileSync(filePath, "utf-8")
         : new Uint8Array(readFileSync(filePath));
 
+      if (args["public-key"] && args.expect) {
+        console.error("Error: --expect cannot be combined with --public-key");
+        process.exit(2);
+      }
+
       if (args["public-key"]) {
         result = await notarVerify(input, base64ToUint8(args["public-key"]));
       } else {

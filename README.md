@@ -171,9 +171,9 @@ notar verify signed.md --expect example.com     # require a valid signature from
 notar verify signed.zip --json                  # output JSON result
 ```
 
-Without `--public-key`, the CLI resolves keys automatically from the publisher's domain (see [Key Discovery](#key-discovery)). Use `--expect <publisher>` to require a valid signature from a specific domain — verification then passes only for that publisher.
+Without `--public-key`, the CLI resolves keys automatically from the publisher's domain (see [Key Discovery](#key-discovery)). Use `--expect <publisher>` to require a valid signature from a specific domain — verification then passes only for that publisher. `--expect` cannot be combined with `--public-key`.
 
-Exits with code `0` on success, `1` on failure. A file with a mix of passing and failing signatures exits `1` (non-zero) and prints a tampering warning; the CLI never reports "Valid Signature" or exits `0` when any signature present failed. The displayed `author` is labeled *claimed, unverified*.
+Exits with code `0` on success and `1` on verification failure. In keyless verification without `--expect`, a file with a mix of passing and failing signatures exits `1` and prints a tampering warning. With `--expect`, only the expected publisher's signatures decide the verdict. With `--public-key`, a matching signature decides the verdict even if other signatures fail. The displayed `author` is labeled *claimed, unverified*.
 
 ## Customization
 

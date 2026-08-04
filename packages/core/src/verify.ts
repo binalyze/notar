@@ -660,12 +660,7 @@ interface KeylessVerdict {
   trustedPublisher?: string;
 }
 
-// Aggregate verdict for keyless (verifyFromAuthor) verification.
-// - With an expectedPublisher, only that publisher's signatures decide the
-//   verdict: at least one must be present and all of them must be valid.
-// - Without one, the verdict is a conjunction: every present signature must
-//   verify, so a single failing signature cannot be masked by another passing
-//   one. `identityVerified` is false because no caller identity was asserted.
+// A keyless verdict requires every signature, unless scoped to an expected publisher.
 function computeKeylessVerdict(
   signers: SignerResult[],
   expectedPublisher?: string,
@@ -692,11 +687,13 @@ function computeKeylessVerdict(
     return { valid: true, identityVerified: true, trustedPublisher: expectedPublisher };
   }
 
-  if (signers.length === 0 || signers.some((s) => !s.valid)) {
+  const failing = signers.find((s) => !s.valid);
+  const hasValid = signers.some((s) => s.valid);
+  if (signers.length === 0 || failing) {
     return {
       valid: false,
-      code: VerifyErrorCode.NO_MATCHING_SIGNATURE,
-      reason: signers.some((s) => s.valid)
+      code: hasValid ? failing?.code ?? VerifyErrorCode.SIGNATURE_MISMATCH : VerifyErrorCode.NO_MATCHING_SIGNATURE,
+      reason: hasValid
         ? "One or more signatures failed verification"
         : "No valid signature found",
       identityVerified: false,
@@ -798,7 +795,12 @@ async function verifyZipFromAuthor(
       valid: false,
       code: firstFailed.code,
       reason: failedFileReason(firstFailed),
-      details: { ...docMeta(manifest), signers, files: fileResults, ...identity },
+      details: {
+        ...docMeta(manifest),
+        signers,
+        files: fileResults,
+        identityVerified: false,
+      },
     };
   }
 

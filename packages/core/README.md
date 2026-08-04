@@ -74,6 +74,19 @@ const publicKeyBase64 = uint8ToBase64(publicKey);
 - **`verify(input, publicKey)`** — Verify a signed markdown or ZIP against a known public key.
 - **`verifyFromAuthor(input, options?)`** — Verify by auto-resolving the public key from the publisher domain (HTTPS + DNS TXT).
 
+> **Verdict semantics (v2):** Without `expectedPublisher`, `verifyFromAuthor`
+> requires at least one signature and every signature must verify. With
+> `expectedPublisher`, only signatures from that publisher decide the verdict.
+> A successful expected-publisher verification returns
+> `details.identityVerified: true` and `details.trustedPublisher`. The `author`
+> field is a claimed, unauthenticated display value.
+
+```ts
+const result = await verifyFromAuthor(signed, {
+  expectedPublisher: "example.com",
+});
+```
+
 ### Format-specific
 
 - **`signFile(content, privateKey, opts)`** / **`signPackage(zip, metadata, privateKey)`**
