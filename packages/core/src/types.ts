@@ -4,6 +4,7 @@ export enum VerifyErrorCode {
   MISSING_KEY_ID = "MISSING_KEY_ID",
   SIGNATURE_MISMATCH = "SIGNATURE_MISMATCH",
   NO_MATCHING_SIGNATURE = "NO_MATCHING_SIGNATURE",
+  UNTRUSTED_PUBLISHER = "UNTRUSTED_PUBLISHER",
   KEY_NOT_FOUND = "KEY_NOT_FOUND",
   KEY_EXPIRED = "KEY_EXPIRED",
   KEY_REVOKED = "KEY_REVOKED",
@@ -91,6 +92,8 @@ export interface VerifyResult {
     author?: string;
     signers?: SignerResult[];
     files?: FileIntegrityResult[];
+    identityVerified?: boolean;
+    trustedPublisher?: string;
   };
 }
 
@@ -103,6 +106,7 @@ export interface VerifyOptions {
   fetch?: typeof globalThis.fetch;
   now?: Date;
   resolveTxt?: boolean;
+  expectedPublisher?: string;
 }
 
 export interface DnsTxtKeyRecord {

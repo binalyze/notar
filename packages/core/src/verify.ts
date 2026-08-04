@@ -652,6 +652,59 @@ async function verifySignatureEntry(
   };
 }
 
+interface KeylessVerdict {
+  valid: boolean;
+  code?: VerifyErrorCode;
+  reason?: string;
+  identityVerified: boolean;
+  trustedPublisher?: string;
+}
+
+// Aggregate verdict for keyless (verifyFromAuthor) verification.
+// - With an expectedPublisher, only that publisher's signatures decide the
+//   verdict: at least one must be present and all of them must be valid.
+// - Without one, the verdict is a conjunction: every present signature must
+//   verify, so a single failing signature cannot be masked by another passing
+//   one. `identityVerified` is false because no caller identity was asserted.
+function computeKeylessVerdict(
+  signers: SignerResult[],
+  expectedPublisher?: string,
+): KeylessVerdict {
+  if (expectedPublisher) {
+    const scoped = signers.filter((s) => s.publisher === expectedPublisher);
+    if (scoped.length === 0) {
+      return {
+        valid: false,
+        code: VerifyErrorCode.UNTRUSTED_PUBLISHER,
+        reason: `No signature from expected publisher "${expectedPublisher}"`,
+        identityVerified: false,
+      };
+    }
+    const failing = scoped.find((s) => !s.valid);
+    if (failing) {
+      return {
+        valid: false,
+        code: failing.code ?? VerifyErrorCode.SIGNATURE_MISMATCH,
+        reason: `Signature from expected publisher "${expectedPublisher}" is invalid`,
+        identityVerified: false,
+      };
+    }
+    return { valid: true, identityVerified: true, trustedPublisher: expectedPublisher };
+  }
+
+  if (signers.length === 0 || signers.some((s) => !s.valid)) {
+    return {
+      valid: false,
+      code: VerifyErrorCode.NO_MATCHING_SIGNATURE,
+      reason: signers.some((s) => s.valid)
+        ? "One or more signatures failed verification"
+        : "No valid signature found",
+      identityVerified: false,
+    };
+  }
+  return { valid: true, identityVerified: false };
+}
+
 async function verifyMdFromAuthor(
   raw: string,
   options?: VerifyOptions,
@@ -672,16 +725,17 @@ async function verifyMdFromAuthor(
     signatures.map((entry) => verifySignatureEntry(basePayload, entry, options)),
   );
 
-  const anyValid = signers.some((s) => s.valid);
-  if (!anyValid) {
-    return {
-      valid: false,
-      code: VerifyErrorCode.NO_MATCHING_SIGNATURE,
-      reason: "No valid signature found",
-      details: { ...docMeta(data), signers },
-    };
+  const verdict = computeKeylessVerdict(signers, options?.expectedPublisher);
+  const details = {
+    ...docMeta(data),
+    signers,
+    identityVerified: verdict.identityVerified,
+    ...(verdict.trustedPublisher && { trustedPublisher: verdict.trustedPublisher }),
+  };
+  if (!verdict.valid) {
+    return { valid: false, code: verdict.code, reason: verdict.reason, details };
   }
-  return { valid: true, details: { ...docMeta(data), signers } };
+  return { valid: true, details };
 }
 
 async function verifyZipFromAuthor(
@@ -716,13 +770,17 @@ async function verifyZipFromAuthor(
     signatures.map((entry) => verifySignatureEntry(baseSignable, entry, options)),
   );
 
-  const anyValid = signers.some((s) => s.valid);
-  if (!anyValid) {
+  const verdict = computeKeylessVerdict(signers, options?.expectedPublisher);
+  const identity = {
+    identityVerified: verdict.identityVerified,
+    ...(verdict.trustedPublisher && { trustedPublisher: verdict.trustedPublisher }),
+  };
+  if (!verdict.valid) {
     return {
       valid: false,
-      code: VerifyErrorCode.NO_MATCHING_SIGNATURE,
-      reason: "No valid signature found",
-      details: { ...docMeta(manifest), signers },
+      code: verdict.code,
+      reason: verdict.reason,
+      details: { ...docMeta(manifest), signers, ...identity },
     };
   }
 
@@ -740,12 +798,12 @@ async function verifyZipFromAuthor(
       valid: false,
       code: firstFailed.code,
       reason: failedFileReason(firstFailed),
-      details: { ...docMeta(manifest), signers, files: fileResults },
+      details: { ...docMeta(manifest), signers, files: fileResults, ...identity },
     };
   }
 
   return {
     valid: true,
-    details: { ...docMeta(manifest), signers, files: fileResults },
+    details: { ...docMeta(manifest), signers, files: fileResults, ...identity },
   };
 }
