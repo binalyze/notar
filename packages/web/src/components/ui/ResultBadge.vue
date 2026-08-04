@@ -19,6 +19,8 @@ const props = defineProps<{
     author?: string;
     signers?: SignerResult[];
     files?: FileIntegrityResult[];
+    identityVerified?: boolean;
+    trustedPublisher?: string;
   };
 }>();
 
@@ -173,7 +175,8 @@ function buildReport(): string {
   if (props.details?.name) lines.push(`Name: ${props.details.name}`);
   if (props.details?.description) lines.push(`Description: ${props.details.description}`);
   if (props.details?.version) lines.push(`Version: ${props.details.version}`);
-  if (props.details?.author) lines.push(`Author: ${props.details.author}`);
+  if (props.details?.trustedPublisher) lines.push(`Verified publisher: ${props.details.trustedPublisher}`);
+  if (props.details?.author) lines.push(`Author (claimed, unverified): ${props.details.author}`);
   if (props.details?.files) {
     const failed = props.details.files.filter((f) => !f.valid);
     if (failed.length > 0) {
@@ -256,9 +259,15 @@ function buildReport(): string {
             <span class="text-muted-foreground">Version</span>
             <code class="text-foreground">{{ details!.version }}</code>
           </template>
+          <template v-if="details!.trustedPublisher">
+            <span class="text-muted-foreground">Verified publisher</span>
+            <code class="text-success font-medium">{{ details!.trustedPublisher }}</code>
+          </template>
           <template v-if="details!.author">
-            <span class="text-muted-foreground">Author</span>
+            <span class="text-muted-foreground">Author (claimed)</span>
             <code class="text-foreground">{{ details!.author }}</code>
+            <span class="text-muted-foreground"></span>
+            <span class="text-xs text-muted-foreground italic">Unverified &mdash; a freeform value set by whoever created the file</span>
           </template>
         </div>
       </div>

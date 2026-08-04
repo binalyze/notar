@@ -23,10 +23,12 @@ const dropZoneRef = ref<InstanceType<typeof DropZone>>();
 const sampleRef = ref<InstanceType<typeof SampleDropdown>>();
 const mode = ref<"publisher" | "publicKey">("publisher");
 const publicKey = ref(props.initialPublicKey ?? "");
+const expectedPublisher = ref("");
 const loading = ref(false);
 const error = ref("");
 const metadata = ref<FileMetadata | null>(null);
 const result = ref<VerifyResult | null>(null);
+const resultAnchor = ref<"publisher" | "publicKey" | null>(null);
 const resultEl = ref<HTMLElement | null>(null);
 const step2El = ref<HTMLElement | null>(null);
 const step3El = ref<HTMLElement | null>(null);
@@ -38,6 +40,13 @@ function scrollTo(el: { value: HTMLElement | null }) {
 const step1Done = computed(() => {
   if (mode.value === "publicKey") return !!publicKey.value.trim();
   return true;
+});
+
+const anchorLabel = computed(() => {
+  if (!result.value || !resultAnchor.value) return "";
+  return resultAnchor.value === "publicKey"
+    ? "Verified against: your pasted public key"
+    : "Verified against: publisher-resolved key (from the file's declared domain)";
 });
 const step3Ready = computed(() => !!file.value && step1Done.value);
 
@@ -64,10 +73,12 @@ function resetForm() {
   file.value = null;
   mode.value = "publisher";
   publicKey.value = props.initialPublicKey ?? "";
+  expectedPublisher.value = "";
   loading.value = false;
   error.value = "";
   metadata.value = null;
   result.value = null;
+  resultAnchor.value = null;
   sampleRef.value?.reset();
 }
 
@@ -139,6 +150,7 @@ async function callVerify(
   const body: Record<string, unknown> = { content, fileName };
   if (verifyMode === "publisher") {
     body.fromAuthor = true;
+    if (expectedPublisher.value.trim()) body.expectedPublisher = expectedPublisher.value.trim();
   } else {
     if (!publicKey.value?.trim()) return { ok: false, data: null, error: "No public key" };
     body.publicKey = publicKey.value.trim();
@@ -153,9 +165,12 @@ async function callVerify(
   return { ok: true, data: data as VerifyResult, error: "" };
 }
 
-function canFallback(): "publisher" | "publicKey" | null {
+// Only allow a fallback that *strengthens* the trust anchor (publisher-resolved
+// -> user-pinned key). Never downgrade a user-pinned public key back to a
+// publisher-resolved key: that would silently discard the user's chosen trust
+// anchor and re-verify against a key named inside the untrusted file (VOC-3035).
+function canFallback(): "publicKey" | null {
   if (mode.value === "publisher" && publicKey.value?.trim()) return "publicKey";
-  if (mode.value === "publicKey") return "publisher";
   return null;
 }
 
@@ -164,6 +179,7 @@ async function verify() {
   loading.value = true;
   error.value = "";
   result.value = null;
+  resultAnchor.value = null;
 
   try {
     const buf = await file.value.arrayBuffer();
@@ -183,17 +199,21 @@ async function verify() {
 
     if (primary.data?.valid) {
       result.value = primary.data;
+      resultAnchor.value = mode.value;
     } else {
       const fallbackMode = canFallback();
       if (fallbackMode) {
         const fallback = await callVerify(content, fileName, fallbackMode);
         if (fallback.ok && fallback.data?.valid) {
           result.value = fallback.data;
+          resultAnchor.value = fallbackMode;
         } else {
           result.value = primary.data;
+          resultAnchor.value = mode.value;
         }
       } else {
         result.value = primary.data;
+        resultAnchor.value = mode.value;
       }
     }
 
@@ -220,6 +240,13 @@ watch(publicKey, () => {
   if (!file.value || mode.value !== "publicKey" || !publicKey.value.trim())
     return;
   pkTimer = setTimeout(() => verify(), 600);
+});
+
+let epTimer: ReturnType<typeof setTimeout>;
+watch(expectedPublisher, () => {
+  clearTimeout(epTimer);
+  if (!file.value || mode.value !== "publisher") return;
+  epTimer = setTimeout(() => verify(), 600);
 });
 </script>
 
@@ -281,16 +308,29 @@ watch(publicKey, () => {
           />
         </div>
 
-        <div
-          v-else
-          class="p-3 bg-muted rounded-lg text-sm text-muted-foreground"
-        >
-          The public key will be automatically fetched from the publisher's
-          domain using
-          <code class="text-xs bg-background px-1 py-0.5 rounded"
-            >.well-known/notar-keys.json</code
-          >
-          or DNS TXT records.
+        <div v-else class="space-y-3">
+          <div class="p-3 bg-muted rounded-lg text-sm text-muted-foreground">
+            The public key will be automatically fetched from the publisher's
+            domain using
+            <code class="text-xs bg-background px-1 py-0.5 rounded"
+              >.well-known/notar-keys.json</code
+            >
+            or DNS TXT records.
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-sm font-medium text-foreground">
+              Expected publisher <span class="text-muted-foreground font-normal">(optional)</span>
+            </label>
+            <input
+              v-model="expectedPublisher"
+              type="text"
+              placeholder="e.g. vendor.example — require a valid signature from this domain"
+              class="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p class="text-xs text-muted-foreground">
+              When set, the file is valid only if it carries a valid signature from this exact domain.
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -406,6 +446,10 @@ watch(publicKey, () => {
             class="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive"
           >
             {{ error }}
+          </div>
+          <div v-if="result && anchorLabel" class="flex items-center gap-2 text-xs text-muted-foreground">
+            <span class="font-medium">Trust anchor:</span>
+            <span>{{ anchorLabel }}</span>
           </div>
           <ResultBadge
             v-if="result"
