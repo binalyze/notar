@@ -652,6 +652,56 @@ async function verifySignatureEntry(
   };
 }
 
+interface KeylessVerdict {
+  valid: boolean;
+  code?: VerifyErrorCode;
+  reason?: string;
+  identityVerified: boolean;
+  trustedPublisher?: string;
+}
+
+// A keyless verdict requires every signature, unless scoped to an expected publisher.
+function computeKeylessVerdict(
+  signers: SignerResult[],
+  expectedPublisher?: string,
+): KeylessVerdict {
+  if (expectedPublisher) {
+    const scoped = signers.filter((s) => s.publisher === expectedPublisher);
+    if (scoped.length === 0) {
+      return {
+        valid: false,
+        code: VerifyErrorCode.UNTRUSTED_PUBLISHER,
+        reason: `No signature from expected publisher "${expectedPublisher}"`,
+        identityVerified: false,
+      };
+    }
+    const failing = scoped.find((s) => !s.valid);
+    if (failing) {
+      return {
+        valid: false,
+        code: failing.code ?? VerifyErrorCode.SIGNATURE_MISMATCH,
+        reason: failing.reason ?? `Verification failed for expected publisher "${expectedPublisher}"`,
+        identityVerified: false,
+      };
+    }
+    return { valid: true, identityVerified: true, trustedPublisher: expectedPublisher };
+  }
+
+  const failing = signers.find((s) => !s.valid);
+  const hasValid = signers.some((s) => s.valid);
+  if (signers.length === 0 || failing) {
+    return {
+      valid: false,
+      code: hasValid ? failing?.code ?? VerifyErrorCode.SIGNATURE_MISMATCH : VerifyErrorCode.NO_MATCHING_SIGNATURE,
+      reason: hasValid
+        ? "One or more signatures failed verification"
+        : "No valid signature found",
+      identityVerified: false,
+    };
+  }
+  return { valid: true, identityVerified: false };
+}
+
 async function verifyMdFromAuthor(
   raw: string,
   options?: VerifyOptions,
@@ -672,16 +722,17 @@ async function verifyMdFromAuthor(
     signatures.map((entry) => verifySignatureEntry(basePayload, entry, options)),
   );
 
-  const anyValid = signers.some((s) => s.valid);
-  if (!anyValid) {
-    return {
-      valid: false,
-      code: VerifyErrorCode.NO_MATCHING_SIGNATURE,
-      reason: "No valid signature found",
-      details: { ...docMeta(data), signers },
-    };
+  const verdict = computeKeylessVerdict(signers, options?.expectedPublisher);
+  const details = {
+    ...docMeta(data),
+    signers,
+    identityVerified: verdict.identityVerified,
+    ...(verdict.trustedPublisher && { trustedPublisher: verdict.trustedPublisher }),
+  };
+  if (!verdict.valid) {
+    return { valid: false, code: verdict.code, reason: verdict.reason, details };
   }
-  return { valid: true, details: { ...docMeta(data), signers } };
+  return { valid: true, details };
 }
 
 async function verifyZipFromAuthor(
@@ -716,13 +767,17 @@ async function verifyZipFromAuthor(
     signatures.map((entry) => verifySignatureEntry(baseSignable, entry, options)),
   );
 
-  const anyValid = signers.some((s) => s.valid);
-  if (!anyValid) {
+  const verdict = computeKeylessVerdict(signers, options?.expectedPublisher);
+  const identity = {
+    identityVerified: verdict.identityVerified,
+    ...(verdict.trustedPublisher && { trustedPublisher: verdict.trustedPublisher }),
+  };
+  if (!verdict.valid) {
     return {
       valid: false,
-      code: VerifyErrorCode.NO_MATCHING_SIGNATURE,
-      reason: "No valid signature found",
-      details: { ...docMeta(manifest), signers },
+      code: verdict.code,
+      reason: verdict.reason,
+      details: { ...docMeta(manifest), signers, ...identity },
     };
   }
 
@@ -740,12 +795,17 @@ async function verifyZipFromAuthor(
       valid: false,
       code: firstFailed.code,
       reason: failedFileReason(firstFailed),
-      details: { ...docMeta(manifest), signers, files: fileResults },
+      details: {
+        ...docMeta(manifest),
+        signers,
+        files: fileResults,
+        identityVerified: false,
+      },
     };
   }
 
   return {
     valid: true,
-    details: { ...docMeta(manifest), signers, files: fileResults },
+    details: { ...docMeta(manifest), signers, files: fileResults, ...identity },
   };
 }

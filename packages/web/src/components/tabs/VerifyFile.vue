@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import Button from "@/components/ui/Button.vue";
 import DropZone from "@/components/ui/DropZone.vue";
 import SampleDropdown from "@/components/ui/SampleDropdown.vue";
@@ -23,13 +23,18 @@ const dropZoneRef = ref<InstanceType<typeof DropZone>>();
 const sampleRef = ref<InstanceType<typeof SampleDropdown>>();
 const mode = ref<"publisher" | "publicKey">("publisher");
 const publicKey = ref(props.initialPublicKey ?? "");
+const expectedPublisher = ref("");
 const loading = ref(false);
 const error = ref("");
 const metadata = ref<FileMetadata | null>(null);
 const result = ref<VerifyResult | null>(null);
+const resultAnchor = ref<"publisher" | "publicKey" | null>(null);
 const resultEl = ref<HTMLElement | null>(null);
 const step2El = ref<HTMLElement | null>(null);
 const step3El = ref<HTMLElement | null>(null);
+let pkTimer: ReturnType<typeof setTimeout>;
+let epTimer: ReturnType<typeof setTimeout>;
+let runSeq = 0;
 
 function scrollTo(el: { value: HTMLElement | null }) {
   nextTick(() => el.value?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -38,6 +43,13 @@ function scrollTo(el: { value: HTMLElement | null }) {
 const step1Done = computed(() => {
   if (mode.value === "publicKey") return !!publicKey.value.trim();
   return true;
+});
+
+const anchorLabel = computed(() => {
+  if (!result.value || !resultAnchor.value) return "";
+  return resultAnchor.value === "publicKey"
+    ? "Verified against: your pasted public key"
+    : "Verified against: publisher-resolved key(s) from publisher domain(s) in the file";
 });
 const step3Ready = computed(() => !!file.value && step1Done.value);
 
@@ -61,13 +73,18 @@ watch(
 watch(step1Done, (done) => { if (done) scrollTo(step2El); });
 
 function resetForm() {
+  runSeq++;
+  clearTimeout(pkTimer);
+  clearTimeout(epTimer);
   file.value = null;
   mode.value = "publisher";
   publicKey.value = props.initialPublicKey ?? "";
+  expectedPublisher.value = "";
   loading.value = false;
   error.value = "";
   metadata.value = null;
   result.value = null;
+  resultAnchor.value = null;
   sampleRef.value?.reset();
 }
 
@@ -135,13 +152,16 @@ async function callVerify(
   content: string,
   fileName: string,
   verifyMode: "publisher" | "publicKey",
+  pinnedKey: string,
+  expected: string,
 ): Promise<{ ok: boolean; data: VerifyResult | null; error: string }> {
   const body: Record<string, unknown> = { content, fileName };
   if (verifyMode === "publisher") {
     body.fromAuthor = true;
+    if (expected) body.expectedPublisher = expected;
   } else {
-    if (!publicKey.value?.trim()) return { ok: false, data: null, error: "No public key" };
-    body.publicKey = publicKey.value.trim();
+    if (!pinnedKey) return { ok: false, data: null, error: "No public key" };
+    body.publicKey = pinnedKey;
   }
   const res = await fetch("/api/verify", {
     method: "POST",
@@ -153,29 +173,41 @@ async function callVerify(
   return { ok: true, data: data as VerifyResult, error: "" };
 }
 
-function canFallback(): "publisher" | "publicKey" | null {
-  if (mode.value === "publisher" && publicKey.value?.trim()) return "publicKey";
-  if (mode.value === "publicKey") return "publisher";
+// Never downgrade a pinned key, or discard an expected publisher.
+function canFallback(
+  verifyMode: "publisher" | "publicKey",
+  pinnedKey: string,
+  expected: string,
+): "publicKey" | null {
+  if (verifyMode === "publisher" && pinnedKey && !expected) return "publicKey";
   return null;
 }
 
 async function verify() {
-  if (!file.value) return;
+  const selectedFile = file.value;
+  if (!selectedFile) return;
+  const runId = ++runSeq;
+  const verifyMode = mode.value;
+  const pinnedKey = publicKey.value.trim();
+  const expected = expectedPublisher.value.trim();
   loading.value = true;
   error.value = "";
   result.value = null;
+  resultAnchor.value = null;
 
   try {
-    const buf = await file.value.arrayBuffer();
+    const buf = await selectedFile.arrayBuffer();
     const content = uint8ToBase64(new Uint8Array(buf));
-    const fileName = file.value.name;
+    const fileName = selectedFile.name;
 
-    if (mode.value === "publicKey" && !publicKey.value?.trim()) {
+    if (verifyMode === "publicKey" && !pinnedKey) {
+      if (runId !== runSeq) return;
       error.value = "Please provide a public key";
       return;
     }
 
-    const primary = await callVerify(content, fileName, mode.value);
+    const primary = await callVerify(content, fileName, verifyMode, pinnedKey, expected);
+    if (runId !== runSeq) return;
     if (!primary.ok) {
       error.value = primary.error;
       return;
@@ -183,28 +215,36 @@ async function verify() {
 
     if (primary.data?.valid) {
       result.value = primary.data;
+      resultAnchor.value = verifyMode;
     } else {
-      const fallbackMode = canFallback();
+      const fallbackMode = canFallback(verifyMode, pinnedKey, expected);
       if (fallbackMode) {
-        const fallback = await callVerify(content, fileName, fallbackMode);
+        const fallback = await callVerify(content, fileName, fallbackMode, pinnedKey, expected);
+        if (runId !== runSeq) return;
         if (fallback.ok && fallback.data?.valid) {
           result.value = fallback.data;
+          resultAnchor.value = fallbackMode;
         } else {
           result.value = primary.data;
+          resultAnchor.value = verifyMode;
         }
       } else {
         result.value = primary.data;
+        resultAnchor.value = verifyMode;
       }
     }
 
     await nextTick();
+    if (runId !== runSeq) return;
     resultEl.value?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) {
+    if (runId !== runSeq) return;
     error.value = e instanceof Error ? e.message : "Verification failed";
     await nextTick();
+    if (runId !== runSeq) return;
     resultEl.value?.scrollIntoView({ behavior: "smooth", block: "start" });
   } finally {
-    loading.value = false;
+    if (runId === runSeq) loading.value = false;
   }
 }
 
@@ -214,12 +254,23 @@ watch([file, mode], () => {
   else if (mode.value === "publicKey" && publicKey.value.trim()) verify();
 });
 
-let pkTimer: ReturnType<typeof setTimeout>;
 watch(publicKey, () => {
   clearTimeout(pkTimer);
   if (!file.value || mode.value !== "publicKey" || !publicKey.value.trim())
     return;
   pkTimer = setTimeout(() => verify(), 600);
+});
+
+watch(expectedPublisher, () => {
+  clearTimeout(epTimer);
+  if (!file.value || mode.value !== "publisher") return;
+  epTimer = setTimeout(() => verify(), 600);
+});
+
+onUnmounted(() => {
+  runSeq++;
+  clearTimeout(pkTimer);
+  clearTimeout(epTimer);
 });
 </script>
 
@@ -281,16 +332,29 @@ watch(publicKey, () => {
           />
         </div>
 
-        <div
-          v-else
-          class="p-3 bg-muted rounded-lg text-sm text-muted-foreground"
-        >
-          The public key will be automatically fetched from the publisher's
-          domain using
-          <code class="text-xs bg-background px-1 py-0.5 rounded"
-            >.well-known/notar-keys.json</code
-          >
-          or DNS TXT records.
+        <div v-else class="space-y-3">
+          <div class="p-3 bg-muted rounded-lg text-sm text-muted-foreground">
+            The public key will be automatically fetched from the publisher's
+            domain using
+            <code class="text-xs bg-background px-1 py-0.5 rounded"
+              >.well-known/notar-keys.json</code
+            >
+            or DNS TXT records.
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-sm font-medium text-foreground">
+              Expected publisher <span class="text-muted-foreground font-normal">(optional)</span>
+            </label>
+            <input
+              v-model="expectedPublisher"
+              type="text"
+              placeholder="e.g. vendor.example — require a valid signature from this domain"
+              class="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p class="text-xs text-muted-foreground">
+              When set, the file is valid only if it carries a valid signature from this exact domain.
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -406,6 +470,10 @@ watch(publicKey, () => {
             class="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive"
           >
             {{ error }}
+          </div>
+          <div v-if="result && anchorLabel" class="flex items-center gap-2 text-xs text-muted-foreground">
+            <span class="font-medium">Trust anchor:</span>
+            <span>{{ anchorLabel }}</span>
           </div>
           <ResultBadge
             v-if="result"
