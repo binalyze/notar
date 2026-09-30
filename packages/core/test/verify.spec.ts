@@ -986,6 +986,20 @@ describe("verifyFromAuthor publisher hardening", () => {
     expect(calls).toEqual([]);
   });
 
+  it("pinned-key verify also rejects more than 16 signatures", async () => {
+    const { publicKey } = await generateKeyPair();
+    const entries = Array.from({ length: 17 }, (_, i) => `  - keyId: k${i}\n    publisher: p${i}.example.com\n    value: "ed25519:AAAA"`).join("\n");
+    const md = `---\nname: t\ndescription: t\nversion: "1"\nsignatures:\n${entries}\n---\n# Body\n`;
+    expect((await verify(md, publicKey)).code).toBe(VerifyErrorCode.TOO_MANY_SIGNATURES);
+    const { privateKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const zipEntries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(zipEntries["MANIFEST.json"]));
+    manifest.signatures = Array.from({ length: 17 }, () => manifest.signatures[0]);
+    zipEntries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    expect((await verify(zipSync(zipEntries), publicKey)).code).toBe(VerifyErrorCode.TOO_MANY_SIGNATURES);
+  });
+
   it("with expectedPublisher, only the expected publisher is contacted", async () => {
     const a = await generateKeyPair();
     const b = await generateKeyPair();

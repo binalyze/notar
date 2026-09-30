@@ -37,6 +37,15 @@ function scopePayload(basePayload: string, publisher: string): Uint8Array {
   return new TextEncoder().encode(publisher + "\n" + basePayload);
 }
 
+function tooManySignatures(count: number): VerifyResult | null {
+  if (count <= MAX_SIGNATURES) return null;
+  return {
+    valid: false,
+    code: VerifyErrorCode.TOO_MANY_SIGNATURES,
+    reason: `Too many signatures (${count}); at most ${MAX_SIGNATURES} are verified`,
+  };
+}
+
 function publisherLabel(publisher: unknown): string {
   return typeof publisher === "string" ? publisher : displaySafe(publisher);
 }
@@ -106,6 +115,8 @@ export async function verifyFile(
       reason: "No signatures found in front matter",
     };
   }
+  const tooMany = tooManySignatures(signatures.length);
+  if (tooMany) return tooMany;
 
   const basePayload = buildMdBasePayload(content);
   const signers: SignerResult[] = [];
@@ -238,6 +249,8 @@ export async function verifyPackage(
       reason: "No signatures found in manifest",
     };
   }
+  const tooMany = tooManySignatures(signatures.length);
+  if (tooMany) return tooMany;
 
   const manifestWithoutSig = { ...manifest } as Record<string, unknown>;
   delete manifestWithoutSig.signatures;
@@ -738,13 +751,8 @@ function keylessPreflight(
   if (!Array.isArray(signatures) || signatures.length === 0) {
     return { valid: false, code: VerifyErrorCode.NO_SIGNATURES, reason: noneReason };
   }
-  if (signatures.length > MAX_SIGNATURES) {
-    return {
-      valid: false,
-      code: VerifyErrorCode.TOO_MANY_SIGNATURES,
-      reason: `Too many signatures (${signatures.length}); at most ${MAX_SIGNATURES} are verified`,
-    };
-  }
+  const tooMany = tooManySignatures(signatures.length);
+  if (tooMany) return tooMany;
   if (options?.expectedPublisher === undefined) return { signatures };
   const expected = parsePublisher(options.expectedPublisher);
   if (!expected.ok) {
