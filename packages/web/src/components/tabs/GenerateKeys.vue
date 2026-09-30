@@ -7,6 +7,7 @@ import {
   generateKeyPair,
   uint8ToBase64,
   formatDnsTxtRecord,
+  parsePublisher,
 } from "@binalyze/notar";
 
 const props = defineProps<{
@@ -38,11 +39,7 @@ const dnsTxtName = ref("");
 const publishMode = ref<"https" | "dns">("dns");
 const protocol = window.location.protocol + "//";
 
-const validDomain = computed(() => {
-  const d = domain.value.trim();
-  if (!d || /\s/.test(d) || d.includes("://")) return false;
-  return d.includes(".") || d.startsWith("localhost") || d.startsWith("127.0.0.1");
-});
+const validDomain = computed(() => parsePublisher(domain.value.trim()).ok);
 
 const completedSteps = ref(new Set<number>());
 const keyCopied = ref(false);

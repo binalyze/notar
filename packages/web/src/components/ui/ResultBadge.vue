@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { ShieldCheck, ShieldX, ShieldAlert, CheckCircle, XCircle, AlertCircle, Copy, Check } from "lucide-vue-next";
-import { VerifyErrorCode } from "@binalyze/notar";
+import { VerifyErrorCode, displaySafe } from "@binalyze/notar";
 import type { SignerResult, FileIntegrityResult } from "@binalyze/notar";
 import VerificationSteps from "./VerificationSteps.vue";
 import SignerDetail from "./SignerDetail.vue";
@@ -168,32 +168,32 @@ const signaturesLabel = computed(() => {
 function buildReport(): string {
   const lines: string[] = [];
   lines.push(verificationLabel.value);
-  if (!props.valid && props.code) lines.push(`Reason: ${props.code}${props.reason ? ` — ${props.reason}` : ""}`);
+  if (!props.valid && props.code) lines.push(`Reason: ${props.code}${props.reason ? ` — ${displaySafe(props.reason)}` : ""}`);
   lines.push("");
   if (props.details?.signers) {
     const valid = props.details.signers.filter((s) => s.valid).length;
     lines.push(`Signature: ${valid}/${props.details.signers.length} Valid`);
     for (const s of props.details.signers) {
       const label = s.valid ? "VALID" : "INVALID";
-      const parts = [`  ${label} ${s.publisher}${s.keyId ? ` (${s.keyId})` : ""}`];
-      if (s.keySource) parts.push(`[${s.keySource}]`);
+      const parts = [`  ${label} ${displaySafe(s.publisher)}${s.keyId ? ` (${displaySafe(s.keyId)})` : ""}`];
+      if (s.keySource) parts.push(`[${s.keySource === "http" ? "http, insecure" : s.keySource}]`);
       if (s.code) parts.push(`— ${s.code}`);
       lines.push(parts.join(" "));
     }
     lines.push("");
   }
   lines.push(`Format: ${formatValid.value ? "Valid" : "Invalid"}`);
-  if (props.details?.name) lines.push(`Name: ${props.details.name}`);
-  if (props.details?.description) lines.push(`Description: ${props.details.description}`);
-  if (props.details?.version) lines.push(`Version: ${props.details.version}`);
-  if (props.valid && props.details?.trustedPublisher) lines.push(`Verified publisher: ${props.details.trustedPublisher}`);
-  if (props.details?.author) lines.push(`Author (claimed, unverified): ${props.details.author}`);
+  if (props.details?.name) lines.push(`Name: ${displaySafe(props.details.name)}`);
+  if (props.details?.description) lines.push(`Description: ${displaySafe(props.details.description)}`);
+  if (props.details?.version) lines.push(`Version: ${displaySafe(props.details.version)}`);
+  if (props.valid && props.details?.trustedPublisher) lines.push(`Verified publisher: ${displaySafe(props.details.trustedPublisher)}`);
+  if (props.details?.author) lines.push(`Author (claimed, unverified): ${displaySafe(props.details.author)}`);
   if (props.details?.files) {
     const failed = props.details.files.filter((f) => !f.valid);
     if (failed.length > 0) {
       lines.push("");
       lines.push("File integrity issues:");
-      for (const f of failed) lines.push(`  FAIL ${f.path} — ${f.code}`);
+      for (const f of failed) lines.push(`  FAIL ${displaySafe(f.path)} — ${f.code}`);
     }
   }
   return lines.join("\n");
@@ -271,23 +271,23 @@ function buildReport(): string {
         <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
           <template v-if="details!.name">
             <span class="text-muted-foreground">Name</span>
-            <span class="text-foreground font-medium">{{ details!.name }}</span>
+            <span class="text-foreground font-medium">{{ displaySafe(details!.name) }}</span>
           </template>
           <template v-if="details!.description">
             <span class="text-muted-foreground">Description</span>
-            <span class="text-foreground">{{ details!.description }}</span>
+            <span class="text-foreground">{{ displaySafe(details!.description) }}</span>
           </template>
           <template v-if="details!.version">
             <span class="text-muted-foreground">Version</span>
-            <code class="text-foreground">{{ details!.version }}</code>
+            <code class="text-foreground">{{ displaySafe(details!.version) }}</code>
           </template>
           <template v-if="valid && details!.trustedPublisher">
             <span class="text-muted-foreground">Verified publisher</span>
-            <code class="text-success font-medium">{{ details!.trustedPublisher }}</code>
+            <code class="text-success font-medium">{{ displaySafe(details!.trustedPublisher) }}</code>
           </template>
           <template v-if="details!.author">
             <span class="text-muted-foreground">Author (claimed)</span>
-            <code class="text-foreground">{{ details!.author }}</code>
+            <code class="text-foreground">{{ displaySafe(details!.author) }}</code>
             <span class="text-muted-foreground"></span>
             <span class="text-xs text-muted-foreground italic">Unverified &mdash; a freeform value set by whoever created the file</span>
           </template>

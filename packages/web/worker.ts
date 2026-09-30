@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { rateLimiter } from "hono-rate-limiter";
-import { base64ToUint8, verify, verifyFromAuthor } from "@binalyze/notar";
-import { MAX_FILE_SIZE, isMarkdownName, isZipName, decodeFileContent, isLocalhost, assetFetch, checkHttpsKey, checkDnsKey } from "./helpers";
+import { base64ToUint8, verify, verifyFromAuthor, parsePublisher, isValidKeyId } from "@binalyze/notar";
+import { MAX_FILE_SIZE, isMarkdownName, isZipName, decodeFileContent, allowInsecureLocalhost, assetFetch, checkHttpsKey, checkDnsKey } from "./helpers";
 
 const app = new Hono<{ Bindings: Env }>().basePath("/api");
 
@@ -61,9 +61,10 @@ app.post("/verify", async (c) => {
   const input = decodeFileContent(content, fileName);
 
   if (fromAuthor) {
-    const devMode = c.env.BUILD_MODE !== "production";
+    const insecureLocal = allowInsecureLocalhost(c.env, c.req.url);
     const result = await verifyFromAuthor(input, {
-      fetch: assetFetch(c.env.ASSETS, devMode),
+      fetch: assetFetch(c.env.ASSETS, insecureLocal),
+      allowInsecureLocalhost: insecureLocal,
       ...(expectedPublisher?.trim() && { expectedPublisher: expectedPublisher.trim() }),
     });
     return c.json(result);
@@ -89,9 +90,15 @@ app.post("/lookup", async (c) => {
     return c.json({ error: "Missing domain or keyId" }, 400);
   }
 
-  const local = isLocalhost(domain);
-  const devMode = c.env.BUILD_MODE !== "production";
-  const fetchOpts = local ? { fetch: assetFetch(c.env.ASSETS, devMode) } : undefined;
+  if (typeof domain !== "string" || typeof keyId !== "string") {
+    return c.json({ error: "domain and keyId must be strings" }, 400);
+  }
+  const parsed = parsePublisher(domain);
+  if (!parsed.ok) return c.json({ error: `Invalid domain: ${parsed.reason}` }, 400);
+  if (!isValidKeyId(keyId)) return c.json({ error: "Invalid keyId" }, 400);
+
+  const insecureLocal = allowInsecureLocalhost(c.env, c.req.url);
+  const fetchOpts = { fetch: assetFetch(c.env.ASSETS, insecureLocal), allowInsecureLocalhost: insecureLocal };
 
   const [https, dns] = await Promise.all([
     checkHttpsKey(domain, keyId, fetchOpts),

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { CheckCircle, XCircle, FileText, ChevronRight } from "lucide-vue-next";
+import { displaySafe } from "@binalyze/notar";
 import type { FileIntegrityResult } from "@binalyze/notar";
 
 const props = defineProps<{ files: FileIntegrityResult[] }>();
@@ -34,7 +35,7 @@ const failedCount = computed(() => props.files.filter((f) => !f.valid).length);
         <CheckCircle v-if="file.valid" class="w-3.5 h-3.5 text-success shrink-0" />
         <XCircle v-else class="w-3.5 h-3.5 text-destructive shrink-0" />
         <FileText class="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-        <span class="text-xs font-mono text-foreground truncate">{{ file.path }}</span>
+        <span class="text-xs font-mono text-foreground truncate">{{ displaySafe(file.path) }}</span>
         <ChevronRight
           v-if="!file.valid"
           :class="['w-3 h-3 text-muted-foreground transition-transform ml-auto shrink-0', expandedPaths.has(file.path) && 'rotate-90']"

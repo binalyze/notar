@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { CheckCircle, XCircle, ChevronRight, Globe, Server } from "lucide-vue-next";
-import { VerifyErrorCode } from "@binalyze/notar";
-import type { SignerResult } from "@binalyze/notar";
+import { VerifyErrorCode, displaySafe } from "@binalyze/notar";
+import type { SignerResult, KeySource } from "@binalyze/notar";
 
 const props = defineProps<{ signer: SignerResult; index?: number }>();
 const expanded = ref(true);
@@ -17,6 +17,14 @@ const ERROR_LABELS: Record<string, string> = {
   [VerifyErrorCode.KEY_FETCH_FAILED]: "Key Fetch Failed",
   [VerifyErrorCode.NETWORK_ERROR]: "Network Error",
   [VerifyErrorCode.DNS_RESOLUTION_FAILED]: "DNS Resolution Failed",
+  [VerifyErrorCode.INVALID_PUBLISHER]: "Invalid Publisher",
+  [VerifyErrorCode.UNTRUSTED_PUBLISHER]: "Not Evaluated",
+};
+
+const KEY_SOURCE_LABELS: Record<KeySource, string> = {
+  https: "HTTPS (.well-known)",
+  http: "HTTP (.well-known) — insecure, dev only",
+  dns: "DNS TXT",
 };
 
 const label = computed(() => {
@@ -53,7 +61,7 @@ const labelColor = computed(() => {
       <XCircle v-else class="w-4 h-4 text-destructive shrink-0" />
       <span v-if="index" class="text-xs text-muted-foreground shrink-0">#{{ index }}</span>
       <span :class="['text-sm font-semibold shrink-0', labelColor]">{{ label }}</span>
-      <span class="text-xs text-muted-foreground truncate">{{ signer.publisher || "" }}</span>
+      <span class="text-xs text-muted-foreground truncate">{{ displaySafe(signer.publisher) }}</span>
       <ChevronRight
         :class="['w-3.5 h-3.5 text-muted-foreground transition-transform ml-auto shrink-0', expanded && 'rotate-90']"
       />
@@ -61,16 +69,16 @@ const labelColor = computed(() => {
     <div v-if="expanded" class="mt-2 pt-2 border-t border-border/50 text-xs">
       <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
         <span class="text-muted-foreground">Publisher</span>
-        <code class="text-foreground">{{ signer.publisher || "(unknown)" }}</code>
+        <code class="text-foreground">{{ displaySafe(signer.publisher) || "(unknown)" }}</code>
         <span class="text-muted-foreground">Key ID</span>
-        <code class="text-foreground">{{ signer.keyId || "(none)" }}</code>
+        <code class="text-foreground">{{ displaySafe(signer.keyId) || "(none)" }}</code>
         <template v-if="signer.keySource">
           <span class="text-muted-foreground flex items-center gap-1">
-            <Globe v-if="signer.keySource === 'https'" class="w-3 h-3" />
+            <Globe v-if="signer.keySource !== 'dns'" class="w-3 h-3" />
             <Server v-else class="w-3 h-3" />
             Key Source
           </span>
-          <span class="text-foreground">{{ signer.keySource === "https" ? "HTTPS (.well-known)" : "DNS TXT" }}</span>
+          <span :class="signer.keySource === 'http' ? 'text-amber-500 font-medium' : 'text-foreground'">{{ KEY_SOURCE_LABELS[signer.keySource] }}</span>
         </template>
         <template v-if="signer.keyExpires">
           <span class="text-muted-foreground">Key Expires</span>
@@ -78,7 +86,7 @@ const labelColor = computed(() => {
         </template>
         <template v-if="signer.reason">
           <span class="text-muted-foreground">Reason</span>
-          <span class="text-foreground">{{ signer.reason }}</span>
+          <span class="text-foreground">{{ displaySafe(signer.reason) }}</span>
         </template>
       </div>
     </div>
