@@ -20,6 +20,18 @@ Only the latest release of `@binalyze/notar` is supported with security updates.
   verification. **Upgrading to 2.0.0 is required** to pick up these fixes; the
   verdict-semantics change is the reason for the major version bump.
 
+- **v2.0.1** — Key discovery no longer trusts the `publisher` string from the
+  file being verified. Previously it was concatenated into the key-manifest URL
+  and a `startsWith("localhost")` check selected plain HTTP, so a value such as
+  `localhost@attacker.test:5125` fetched keys over HTTP from an attacker host
+  while the UI reported HTTPS. Publishers are now validated as bare hostnames,
+  manifests are fetched over HTTPS only (no redirects, 5 s timeout, 64 KiB cap,
+  schema-checked), plain HTTP is limited to `localhost`/`127.0.0.1` behind an
+  explicit `allowInsecureLocalhost` opt-in, `keySource` reports the real
+  transport, signature count is capped at 16, and file-derived strings are
+  escaped before display. New error codes: `INVALID_PUBLISHER`,
+  `TOO_MANY_SIGNATURES`.
+
 ## Reporting a Vulnerability
 
 Please report security vulnerabilities through [GitHub Security Advisories](https://github.com/binalyze/notar/security/advisories).
