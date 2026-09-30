@@ -246,6 +246,7 @@ describe("fetchKeyManifest", () => {
         { ...key, keyId: "bad_type", publicKey: 42 },
         { ...key, keyId: "bad_len", publicKey: "AAAA" },
         { ...key, keyId: "bad_alg", algorithm: "rsa" },
+        { keyId: "no_alg", publicKey: key.publicKey, expires: key.expires },
         { ...key, keyId: "bad_exp", expires: "soon" },
         key,
       ],

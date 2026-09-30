@@ -209,7 +209,7 @@ function buildReport(): string {
           <ShieldX v-else class="w-6 h-6 shrink-0 text-destructive" />
           <span class="font-semibold text-lg text-foreground">{{ verificationLabel }}</span>
         </div>
-        <p v-if="!valid && reason" class="text-sm text-muted-foreground mt-1 ml-9">{{ reason }}</p>
+        <p v-if="!valid && reason" class="text-sm text-muted-foreground mt-1 ml-9">{{ displaySafe(reason) }}</p>
       </div>
     </div>
 
@@ -259,7 +259,7 @@ function buildReport(): string {
             <Copy v-else class="w-4 h-4" />
           </button>
         </div>
-        <p v-if="!formatValid && reason" class="text-sm text-muted-foreground mt-1 ml-9">{{ reason }}</p>
+        <p v-if="!formatValid && reason" class="text-sm text-muted-foreground mt-1 ml-9">{{ displaySafe(reason) }}</p>
       </div>
 
       <div class="px-4 pb-3 border-t border-border/30 pt-3">

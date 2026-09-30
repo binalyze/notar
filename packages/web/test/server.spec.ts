@@ -164,6 +164,15 @@ function apiTests() {
     expect(result.details?.signers?.[0]?.code).toBe("INVALID_PUBLISHER");
   });
 
+  test.each(["", "   "])("POST /api/verify rejects a blank expectedPublisher %j", async (expectedPublisher) => {
+    const res = await fetch(`${BASE}/api/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: Buffer.from("# x").toString("base64"), fileName: "doc.md", fromAuthor: true, expectedPublisher }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   test("POST /api/verify rejects an invalid expectedPublisher", async () => {
     const result = await verifyApi(readFileSync(SAMPLE_LOCALHOST, "utf-8"), { expectedPublisher: "evil.com/x" });
     expect(result.valid).toBe(false);

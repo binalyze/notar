@@ -155,7 +155,7 @@ function isKeyEntry(value: unknown): value is PublicKeyEntry {
   if (!value || typeof value !== "object") return false;
   const k = value as Record<string, unknown>;
   if (typeof k.keyId !== "string" || !k.keyId || k.keyId.length > 128) return false;
-  if (k.algorithm !== undefined && k.algorithm !== "ed25519") return false;
+  if (k.algorithm !== "ed25519") return false;
   if (typeof k.publicKey !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(k.publicKey)) return false;
   if (base64ToUint8(k.publicKey).length !== 32) return false;
   if (typeof k.expires !== "string" || Number.isNaN(Date.parse(k.expires))) return false;

@@ -115,8 +115,8 @@ export async function verifyFile(
     const checked = checkEntrySignature(entry);
     if ("reason" in checked) {
       signers.push({
-        keyId: publisherLabel(entry.keyId),
-        publisher: publisherLabel(entry.publisher),
+        keyId: publisherLabel(entry?.keyId),
+        publisher: publisherLabel(entry?.publisher),
         valid: false,
         code: VerifyErrorCode.MALFORMED_SIGNATURE,
         reason: checked.reason,
@@ -249,8 +249,8 @@ export async function verifyPackage(
     const checked = checkEntrySignature(entry);
     if ("reason" in checked) {
       signers.push({
-        keyId: publisherLabel(entry.keyId),
-        publisher: publisherLabel(entry.publisher),
+        keyId: publisherLabel(entry?.keyId),
+        publisher: publisherLabel(entry?.publisher),
         valid: false,
         code: VerifyErrorCode.MALFORMED_SIGNATURE,
         reason: checked.reason,
@@ -604,8 +604,8 @@ async function verifySignatureEntry(
   options?: VerifyOptions,
   expected?: ParsedPublisher,
 ): Promise<SignerResult> {
-  const keyId = typeof entry.keyId === "string" ? entry.keyId : "";
-  const rawPublisher = publisherLabel(entry.publisher);
+  const keyId = typeof entry?.keyId === "string" ? entry.keyId : "";
+  const rawPublisher = publisherLabel(entry?.publisher);
   const fail = (code: VerifyErrorCode, reason: string): SignerResult =>
     ({ keyId, publisher: rawPublisher, valid: false, code, reason });
 
@@ -743,7 +743,7 @@ function keylessPreflight(
       reason: `Too many signatures (${signatures.length}); at most ${MAX_SIGNATURES} are verified`,
     };
   }
-  if (!options?.expectedPublisher) return { signatures };
+  if (options?.expectedPublisher === undefined) return { signatures };
   const expected = parsePublisher(options.expectedPublisher);
   if (!expected.ok) {
     return { valid: false, code: VerifyErrorCode.INVALID_PUBLISHER, reason: `Invalid expected publisher: ${expected.reason}` };

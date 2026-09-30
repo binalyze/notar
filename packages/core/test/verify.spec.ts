@@ -1028,6 +1028,31 @@ describe("verifyFromAuthor publisher hardening", () => {
     expect(result.details?.signers!.map((s) => s.code)).toEqual([VerifyErrorCode.MALFORMED_SIGNATURE, VerifyErrorCode.MALFORMED_SIGNATURE]);
   });
 
+  it.each(["pinned", "keyless"])("%s ZIP verify reports a null signature entry per signer", async (mode) => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(entries["MANIFEST.json"]));
+    manifest.signatures = [null];
+    entries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    const { calls, fetch } = recorder();
+    const result = mode === "pinned"
+      ? await verify(zipSync(entries), publicKey)
+      : await verifyFromAuthor(zipSync(entries), { fetch });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.MALFORMED_SIGNATURE);
+    expect(calls).toEqual([]);
+  });
+
+  it("an explicitly empty expectedPublisher is rejected, not ignored", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(signed, { fetch, expectedPublisher: "" });
+    expect(result.code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+    expect(calls).toEqual([]);
+  });
+
   it("pinned-key verify tolerates non-string entry fields", async () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);

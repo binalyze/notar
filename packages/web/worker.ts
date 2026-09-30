@@ -45,6 +45,9 @@ app.post("/verify", async (c) => {
   if (expectedPublisher !== undefined && typeof expectedPublisher !== "string") {
     return c.json({ error: "expectedPublisher must be a string" }, 400);
   }
+  if (typeof expectedPublisher === "string" && !expectedPublisher.trim()) {
+    return c.json({ error: "expectedPublisher must not be empty" }, 400);
+  }
   if (expectedPublisher && !fromAuthor) {
     return c.json({ error: "expectedPublisher requires fromAuthor to be true" }, 400);
   }
@@ -65,7 +68,7 @@ app.post("/verify", async (c) => {
     const result = await verifyFromAuthor(input, {
       fetch: assetFetch(c.env.ASSETS, insecureLocal),
       allowInsecureLocalhost: insecureLocal,
-      ...(expectedPublisher?.trim() && { expectedPublisher: expectedPublisher.trim() }),
+      ...(expectedPublisher !== undefined && { expectedPublisher: expectedPublisher.trim() }),
     });
     return c.json(result);
   }
