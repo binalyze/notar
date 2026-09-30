@@ -3,11 +3,12 @@ import * as fm from "./front-matter.js";
 import { unzipSync } from "fflate";
 import { base64ToUint8 } from "./utils.js";
 import { parseFile } from "./sign.js";
+import { parsePublisher, dnsName, fetchKeyManifest, displaySafe, type ParsedPublisher } from "./publisher.js";
 import {
   VerifyErrorCode,
   type DnsTxtKeyRecord,
   type FileIntegrityResult,
-  type KeyManifest,
+  type KeySource,
   type PackageManifest,
   type PublicKeyEntry,
   type SignatureEntry,
@@ -17,6 +18,7 @@ import {
 } from "./types.js";
 
 const SIGNATURE_PREFIX = "ed25519:";
+const MAX_SIGNATURES = 16;
 
 // -- Helpers ------------------------------------------------------------------
 
@@ -33,6 +35,33 @@ function buildMdBasePayload(raw: string): string {
 
 function scopePayload(basePayload: string, publisher: string): Uint8Array {
   return new TextEncoder().encode(publisher + "\n" + basePayload);
+}
+
+function publisherLabel(publisher: unknown): string {
+  return typeof publisher === "string" ? publisher : displaySafe(publisher);
+}
+
+// Signature entries come from untrusted files; ZIP manifests are raw JSON with no type guarantees.
+function checkEntrySignature(entry: SignatureEntry): { sig: Uint8Array } | { reason: string } {
+  const e = entry as unknown as Record<string, unknown> | null;
+  if (!e || typeof e.value !== "string" || !e.value.startsWith(SIGNATURE_PREFIX)) {
+    return { reason: "Signature does not start with ed25519: prefix" };
+  }
+  if (e.keyId !== undefined && e.keyId !== null && typeof e.keyId !== "string") return { reason: "keyId must be a string" };
+  const b64 = e.value.slice(SIGNATURE_PREFIX.length);
+  const bytes = /^[A-Za-z0-9+/]+={0,2}$/.test(b64) ? base64ToUint8(b64) : null;
+  if (bytes?.length !== 64) return { reason: "Signature is not a valid ed25519 signature" };
+  return { sig: bytes };
+}
+
+async function safeVerify(sig: Uint8Array, payload: Uint8Array, publicKeyB64: string): Promise<boolean> {
+  try {
+    const publicKey = base64ToUint8(publicKeyB64);
+    if (publicKey.length !== 32) return false;
+    return await ed.verifyAsync(sig, payload, publicKey);
+  } catch {
+    return false;
+  }
 }
 
 function canonicalJson(obj: Record<string, unknown>): string {
@@ -83,22 +112,23 @@ export async function verifyFile(
   let anyValid = false;
 
   for (const entry of signatures) {
-    if (!entry.value.startsWith(SIGNATURE_PREFIX)) {
+    const checked = checkEntrySignature(entry);
+    if ("reason" in checked) {
       signers.push({
-        keyId: entry.keyId,
-        publisher: entry.publisher,
+        keyId: publisherLabel(entry.keyId),
+        publisher: publisherLabel(entry.publisher),
         valid: false,
         code: VerifyErrorCode.MALFORMED_SIGNATURE,
-        reason: "Signature does not start with ed25519: prefix",
+        reason: checked.reason,
       });
       continue;
     }
-    const sigBytes = base64ToUint8(entry.value.slice(SIGNATURE_PREFIX.length));
+    const sigBytes = checked.sig;
     const payloadBytes = scopePayload(basePayload, entry.publisher);
-    const valid = await ed.verifyAsync(sigBytes, payloadBytes, publicKey);
+    const valid = await ed.verifyAsync(sigBytes, payloadBytes, publicKey).catch(() => false);
     signers.push({
       keyId: entry.keyId,
-      publisher: entry.publisher,
+      publisher: publisherLabel(entry.publisher),
       valid,
       ...(!valid && {
         code: VerifyErrorCode.SIGNATURE_MISMATCH,
@@ -216,22 +246,23 @@ export async function verifyPackage(
   let anyValid = false;
 
   for (const entry of signatures) {
-    if (!entry.value.startsWith(SIGNATURE_PREFIX)) {
+    const checked = checkEntrySignature(entry);
+    if ("reason" in checked) {
       signers.push({
-        keyId: entry.keyId,
-        publisher: entry.publisher,
+        keyId: publisherLabel(entry.keyId),
+        publisher: publisherLabel(entry.publisher),
         valid: false,
         code: VerifyErrorCode.MALFORMED_SIGNATURE,
-        reason: "Signature does not start with ed25519: prefix",
+        reason: checked.reason,
       });
       continue;
     }
-    const sigBytes = base64ToUint8(entry.value.slice(SIGNATURE_PREFIX.length));
+    const sigBytes = checked.sig;
     const signableBytes = scopePayload(baseSignable, entry.publisher);
-    const valid = await ed.verifyAsync(sigBytes, signableBytes, publicKey);
+    const valid = await ed.verifyAsync(sigBytes, signableBytes, publicKey).catch(() => false);
     signers.push({
       keyId: entry.keyId,
-      publisher: entry.publisher,
+      publisher: publisherLabel(entry.publisher),
       valid,
       ...(!valid && {
         code: VerifyErrorCode.SIGNATURE_MISMATCH,
@@ -320,7 +351,7 @@ async function queryDnsTxt(
 ): Promise<string[]> {
   try {
     const url = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=TXT`;
-    const resp = await fetchFn(url, {
+    const resp = await fetchFn(url, { // class-sweep-allow: fixed DoH endpoint, name is URL-encoded
       headers: { accept: "application/dns-json" },
       signal,
     });
@@ -336,14 +367,13 @@ async function queryDnsTxt(
 }
 
 async function fetchPublicKeyFromDns(
-  author: string,
+  fqdn: string,
   keyId: string,
   options?: { fetch?: typeof globalThis.fetch; now?: Date },
 ): Promise<{ key?: PublicKeyEntry; source: "dns"; code?: VerifyErrorCode }> {
   const fetchFn = options?.fetch ?? globalThis.fetch;
   const now = options?.now ?? new Date();
 
-  const fqdn = `notar.${keyId}.${author}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
@@ -383,39 +413,36 @@ export function formatDnsTxtRecord(
   expiresUnix: number,
 ): { fqdn: string; value: string } {
   const value = `v=sk1; k=ed25519; p=${publicKeyBase64}; exp=${expiresUnix}`;
-  return { fqdn: `notar.${keyId}`, value };
+  return { fqdn: `notar.${keyId}`, value }; // class-sweep-allow: display-only record name for the key owner
 }
 
 // -- Key discovery ------------------------------------------------------------
 
-function isLocal(host: string): boolean {
-  return host.startsWith("localhost") || host.startsWith("127.0.0.1");
-}
-
-function keysUrl(author: string): string {
-  const protocol = isLocal(author) ? "http" : "https";
-  return `${protocol}://${author}/.well-known/notar-keys.json`;
-}
-
 function isKeyValid(key: PublicKeyEntry, now: Date): boolean {
   return checkKeyValidity(key, now) === null;
+}
+
+function requirePublisher(author: string): ParsedPublisher {
+  const parsed = parsePublisher(author);
+  if (!parsed.ok) throw new Error(`Invalid publisher: ${parsed.reason}`);
+  return parsed.value;
+}
+
+async function fetchManifestKeys(author: string, options?: VerifyOptions): Promise<PublicKeyEntry[]> {
+  const result = await fetchKeyManifest(requirePublisher(author), options);
+  if (!result.ok) {
+    throw new Error(`Failed to fetch keys${result.url ? ` from ${result.url}` : ""}: ${result.reason}`);
+  }
+  return result.keys;
 }
 
 export async function fetchPublicKeys(
   author: string,
   options?: VerifyOptions,
 ): Promise<PublicKeyEntry[]> {
-  const fetchFn = options?.fetch ?? globalThis.fetch;
   const now = options?.now ?? new Date();
-  const url = keysUrl(author);
-
-  const response = await fetchFn(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch keys from ${url}: ${response.status}`);
-  }
-
-  const manifest = (await response.json()) as KeyManifest;
-  return manifest.keys.filter((key) => isKeyValid(key, now));
+  const keys = await fetchManifestKeys(author, options);
+  return keys.filter((key) => isKeyValid(key, now));
 }
 
 export async function fetchPublicKey(
@@ -423,17 +450,9 @@ export async function fetchPublicKey(
   keyId: string,
   options?: VerifyOptions,
 ): Promise<PublicKeyEntry | undefined> {
-  const fetchFn = options?.fetch ?? globalThis.fetch;
   const now = options?.now ?? new Date();
-  const url = keysUrl(author);
-
-  const response = await fetchFn(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch keys from ${url}: ${response.status}`);
-  }
-
-  const manifest = (await response.json()) as KeyManifest;
-  const key = manifest.keys.find((k) => k.keyId === keyId);
+  const keys = await fetchManifestKeys(author, options);
+  const key = keys.find((k) => k.keyId === keyId);
   if (!key) return undefined;
   if (!isKeyValid(key, now)) return undefined;
   return key;
@@ -442,48 +461,38 @@ export async function fetchPublicKey(
 interface ResolvedKey {
   key?: PublicKeyEntry;
   code?: VerifyErrorCode;
-  source?: "https" | "dns";
+  source?: KeySource;
 }
 
 async function resolvePublicKeyFromHttps(
-  author: string,
+  publisher: ParsedPublisher,
   keyId: string,
   options?: VerifyOptions,
 ): Promise<ResolvedKey> {
-  const fetchFn = options?.fetch ?? globalThis.fetch;
   const now = options?.now ?? new Date();
-  const url = keysUrl(author);
+  const result = await fetchKeyManifest(publisher, options);
+  if (!result.ok) return { code: result.code, source: result.transport };
 
-  try {
-    const response = await fetchFn(url);
-    if (!response.ok) {
-      return { code: VerifyErrorCode.KEY_FETCH_FAILED, source: "https" };
-    }
-
-    const manifest = (await response.json()) as KeyManifest;
-    const key = manifest.keys.find((k) => k.keyId === keyId);
-    if (!key) {
-      return { code: VerifyErrorCode.KEY_NOT_FOUND, source: "https" };
-    }
-
-    const validity = checkKeyValidity(key, now);
-    if (validity) {
-      return { key, code: validity, source: "https" };
-    }
-
-    return { key, source: "https" };
-  } catch {
-    return { code: VerifyErrorCode.NETWORK_ERROR, source: "https" };
+  const key = result.keys.find((k) => k.keyId === keyId);
+  if (!key) {
+    return { code: VerifyErrorCode.KEY_NOT_FOUND, source: result.transport };
   }
+
+  const validity = checkKeyValidity(key, now);
+  if (validity) {
+    return { key, code: validity, source: result.transport };
+  }
+
+  return { key, source: result.transport };
 }
 
 async function resolvePublicKey(
-  author: string,
+  publisher: ParsedPublisher,
   keyId: string,
   options?: VerifyOptions,
 ): Promise<ResolvedKey> {
   const resolveTxt = options?.resolveTxt !== false;
-  const httpsResult = await resolvePublicKeyFromHttps(author, keyId, options);
+  const httpsResult = await resolvePublicKeyFromHttps(publisher, keyId, options);
 
   // HTTPS is authoritative whenever it produces a definitive answer:
   //  - A key (valid, revoked, or expired).
@@ -493,11 +502,12 @@ async function resolvePublicKey(
   const httpsAuthoritative =
     !!httpsResult.key || httpsResult.code === VerifyErrorCode.KEY_NOT_FOUND;
 
-  if (!resolveTxt || httpsAuthoritative) {
+  const fqdn = dnsName(publisher, keyId);
+  if (!resolveTxt || httpsAuthoritative || !fqdn) {
     return httpsResult;
   }
 
-  const dns = await fetchPublicKeyFromDns(author, keyId, {
+  const dns = await fetchPublicKeyFromDns(fqdn, keyId, {
     fetch: options?.fetch,
     now: options?.now,
   });
@@ -532,23 +542,28 @@ export async function verifyFromAuthor(
 async function tryAllKeys(
   basePayload: string,
   sigBytes: Uint8Array,
-  publisher: string,
+  rawPublisher: string,
+  publisher: ParsedPublisher,
   options?: VerifyOptions,
 ): Promise<SignerResult> {
-  const candidates: Array<{ key: PublicKeyEntry; source: "https" | "dns" }> = [];
+  const candidates: Array<{ key: PublicKeyEntry; source: KeySource }> = [];
   let httpsAvailable = false;
+  const now = options?.now ?? new Date();
 
-  try {
-    const keys = await fetchPublicKeys(publisher, options);
+  const manifest = await fetchKeyManifest(publisher, options);
+  if (manifest.ok) {
     httpsAvailable = true;
-    for (const key of keys) candidates.push({ key, source: "https" });
-  } catch { /* HTTPS unavailable */ }
+    for (const key of manifest.keys) {
+      if (isKeyValid(key, now)) candidates.push({ key, source: manifest.transport });
+    }
+  }
 
   // Only consult DNS when HTTPS is unreachable. Otherwise HTTPS is authoritative
   // (including for revocation), so a now-revoked-but-stale DNS record cannot
   // override the publisher's HTTPS key manifest.
-  if (!httpsAvailable && options?.resolveTxt !== false) {
-    const dns = await fetchPublicKeyFromDns(publisher, "key", {
+  const fqdn = dnsName(publisher, "key");
+  if (!httpsAvailable && options?.resolveTxt !== false && fqdn) {
+    const dns = await fetchPublicKeyFromDns(fqdn, "key", {
       fetch: options?.fetch,
       now: options?.now,
     });
@@ -560,28 +575,26 @@ async function tryAllKeys(
   if (candidates.length === 0) {
     return {
       keyId: "",
-      publisher,
+      publisher: rawPublisher,
       valid: false,
       code: VerifyErrorCode.KEY_NOT_FOUND,
-      reason: `No public keys found for ${publisher}`,
+      reason: `No public keys found for ${publisher.canonical}`,
     };
   }
 
-  const payloadBytes = scopePayload(basePayload, publisher);
+  const payloadBytes = scopePayload(basePayload, rawPublisher);
   for (const { key, source } of candidates) {
-    const pubKey = base64ToUint8(key.publicKey);
-    const valid = await ed.verifyAsync(sigBytes, payloadBytes, pubKey);
-    if (valid) {
-      return { keyId: key.keyId, publisher, valid: true, keySource: source, keyExpires: key.expires };
+    if (await safeVerify(sigBytes, payloadBytes, key.publicKey)) {
+      return { keyId: key.keyId, publisher: rawPublisher, valid: true, keySource: source, keyExpires: key.expires };
     }
   }
 
   return {
     keyId: "",
-    publisher,
+    publisher: rawPublisher,
     valid: false,
     code: VerifyErrorCode.SIGNATURE_MISMATCH,
-    reason: `Signature does not match any of ${candidates.length} key(s) for ${publisher}`,
+    reason: `Signature does not match any of ${candidates.length} key(s) for ${publisher.canonical}`,
   };
 }
 
@@ -589,59 +602,66 @@ async function verifySignatureEntry(
   basePayload: string,
   entry: SignatureEntry,
   options?: VerifyOptions,
+  expected?: ParsedPublisher,
 ): Promise<SignerResult> {
-  const publisher = entry.publisher;
+  const keyId = typeof entry.keyId === "string" ? entry.keyId : "";
+  const rawPublisher = publisherLabel(entry.publisher);
+  const fail = (code: VerifyErrorCode, reason: string): SignerResult =>
+    ({ keyId, publisher: rawPublisher, valid: false, code, reason });
 
-  if (!entry.value.startsWith(SIGNATURE_PREFIX)) {
-    return {
-      keyId: entry.keyId,
-      publisher,
-      valid: false,
-      code: VerifyErrorCode.MALFORMED_SIGNATURE,
-      reason: "Signature does not start with ed25519: prefix",
-    };
+  const checked = checkEntrySignature(entry);
+  if ("reason" in checked) return fail(VerifyErrorCode.MALFORMED_SIGNATURE, checked.reason);
+
+  const parsed = parsePublisher(entry.publisher);
+  if (!parsed.ok) return fail(VerifyErrorCode.INVALID_PUBLISHER, `Invalid publisher: ${parsed.reason}`);
+  const publisher = parsed.value;
+
+  if (expected && publisher.canonical !== expected.canonical) {
+    return fail(VerifyErrorCode.UNTRUSTED_PUBLISHER, "Not evaluated: publisher is not the expected publisher");
+  }
+  if (publisher.local && !options?.allowInsecureLocalhost) {
+    return fail(VerifyErrorCode.INVALID_PUBLISHER, `Local publisher ${publisher.canonical} requires allowInsecureLocalhost`);
   }
 
-  const sigBytes = base64ToUint8(entry.value.slice(SIGNATURE_PREFIX.length));
+  const sigBytes = checked.sig;
 
-  if (!entry.keyId) {
-    return tryAllKeys(basePayload, sigBytes, publisher, options);
+  if (!keyId) {
+    return tryAllKeys(basePayload, sigBytes, rawPublisher, publisher, options);
   }
 
-  const resolved = await resolvePublicKey(publisher, entry.keyId, options);
+  const resolved = await resolvePublicKey(publisher, keyId, options);
 
   if (!resolved.key) {
     return {
-      keyId: entry.keyId,
-      publisher,
+      keyId,
+      publisher: rawPublisher,
       valid: false,
       code: resolved.code ?? VerifyErrorCode.KEY_NOT_FOUND,
-      reason: `Could not resolve public key for ${publisher} (${entry.keyId})`,
+      reason: `Could not resolve public key for ${publisher.canonical} (${keyId})`,
       keySource: resolved.source,
     };
   }
 
   if (resolved.code === VerifyErrorCode.KEY_EXPIRED || resolved.code === VerifyErrorCode.KEY_REVOKED) {
     return {
-      keyId: entry.keyId,
-      publisher,
+      keyId,
+      publisher: rawPublisher,
       valid: false,
       code: resolved.code,
       reason: resolved.code === VerifyErrorCode.KEY_EXPIRED
-        ? `Key ${entry.keyId} has expired`
-        : `Key ${entry.keyId} has been revoked`,
+        ? `Key ${keyId} has expired`
+        : `Key ${keyId} has been revoked`,
       keySource: resolved.source,
       keyExpires: resolved.key.expires,
     };
   }
 
-  const publicKey = base64ToUint8(resolved.key.publicKey);
-  const payloadBytes = scopePayload(basePayload, publisher);
-  const valid = await ed.verifyAsync(sigBytes, payloadBytes, publicKey);
+  const payloadBytes = scopePayload(basePayload, rawPublisher);
+  const valid = await safeVerify(sigBytes, payloadBytes, resolved.key.publicKey);
 
   return {
-    keyId: entry.keyId,
-    publisher,
+    keyId,
+    publisher: rawPublisher,
     valid,
     keySource: resolved.source,
     keyExpires: resolved.key.expires,
@@ -660,18 +680,23 @@ interface KeylessVerdict {
   trustedPublisher?: string;
 }
 
+function canonicalPublisher(value: string): string | undefined {
+  const parsed = parsePublisher(value);
+  return parsed.ok ? parsed.value.canonical : undefined;
+}
+
 // A keyless verdict requires every signature, unless scoped to an expected publisher.
 function computeKeylessVerdict(
   signers: SignerResult[],
-  expectedPublisher?: string,
+  expected?: ParsedPublisher,
 ): KeylessVerdict {
-  if (expectedPublisher) {
-    const scoped = signers.filter((s) => s.publisher === expectedPublisher);
+  if (expected) {
+    const scoped = signers.filter((s) => canonicalPublisher(s.publisher) === expected.canonical);
     if (scoped.length === 0) {
       return {
         valid: false,
         code: VerifyErrorCode.UNTRUSTED_PUBLISHER,
-        reason: `No signature from expected publisher "${expectedPublisher}"`,
+        reason: `No signature from expected publisher "${expected.canonical}"`,
         identityVerified: false,
       };
     }
@@ -680,11 +705,11 @@ function computeKeylessVerdict(
       return {
         valid: false,
         code: failing.code ?? VerifyErrorCode.SIGNATURE_MISMATCH,
-        reason: failing.reason ?? `Verification failed for expected publisher "${expectedPublisher}"`,
+        reason: failing.reason ?? `Verification failed for expected publisher "${expected.canonical}"`,
         identityVerified: false,
       };
     }
-    return { valid: true, identityVerified: true, trustedPublisher: expectedPublisher };
+    return { valid: true, identityVerified: true, trustedPublisher: expected.canonical };
   }
 
   const failing = signers.find((s) => !s.valid);
@@ -702,27 +727,46 @@ function computeKeylessVerdict(
   return { valid: true, identityVerified: false };
 }
 
+// Checks that run before any network I/O for keyless verification.
+function keylessPreflight(
+  signatures: unknown,
+  noneReason: string,
+  options?: VerifyOptions,
+): { signatures: SignatureEntry[]; expected?: ParsedPublisher } | VerifyResult {
+  if (!Array.isArray(signatures) || signatures.length === 0) {
+    return { valid: false, code: VerifyErrorCode.NO_SIGNATURES, reason: noneReason };
+  }
+  if (signatures.length > MAX_SIGNATURES) {
+    return {
+      valid: false,
+      code: VerifyErrorCode.TOO_MANY_SIGNATURES,
+      reason: `Too many signatures (${signatures.length}); at most ${MAX_SIGNATURES} are verified`,
+    };
+  }
+  if (!options?.expectedPublisher) return { signatures };
+  const expected = parsePublisher(options.expectedPublisher);
+  if (!expected.ok) {
+    return { valid: false, code: VerifyErrorCode.INVALID_PUBLISHER, reason: `Invalid expected publisher: ${expected.reason}` };
+  }
+  return { signatures, expected: expected.value };
+}
+
 async function verifyMdFromAuthor(
   raw: string,
   options?: VerifyOptions,
 ): Promise<VerifyResult> {
   const { data } = parseFile(raw);
-  const signatures = data.signatures;
-  if (!signatures || signatures.length === 0) {
-    return {
-      valid: false,
-      code: VerifyErrorCode.NO_SIGNATURES,
-      reason: "No signatures found in front matter",
-    };
-  }
+  const preflight = keylessPreflight(data.signatures, "No signatures found in front matter", options);
+  if ("valid" in preflight) return preflight;
+  const { signatures, expected } = preflight;
 
   const basePayload = buildMdBasePayload(raw);
 
   const signers = await Promise.all(
-    signatures.map((entry) => verifySignatureEntry(basePayload, entry, options)),
+    signatures.map((entry) => verifySignatureEntry(basePayload, entry, options, expected)),
   );
 
-  const verdict = computeKeylessVerdict(signers, options?.expectedPublisher);
+  const verdict = computeKeylessVerdict(signers, expected);
   const details = {
     ...docMeta(data),
     signers,
@@ -750,24 +794,19 @@ async function verifyZipFromAuthor(
   }
 
   const manifest: PackageManifest = JSON.parse(new TextDecoder().decode(manifestBytes));
-  const signatures = manifest.signatures;
-  if (!signatures || signatures.length === 0) {
-    return {
-      valid: false,
-      code: VerifyErrorCode.NO_SIGNATURES,
-      reason: "No signatures found in manifest",
-    };
-  }
+  const preflight = keylessPreflight(manifest.signatures, "No signatures found in manifest", options);
+  if ("valid" in preflight) return preflight;
+  const { signatures, expected } = preflight;
 
   const manifestWithoutSig = { ...manifest } as Record<string, unknown>;
   delete manifestWithoutSig.signatures;
   const baseSignable = canonicalJson(manifestWithoutSig);
 
   const signers = await Promise.all(
-    signatures.map((entry) => verifySignatureEntry(baseSignable, entry, options)),
+    signatures.map((entry) => verifySignatureEntry(baseSignable, entry, options, expected)),
   );
 
-  const verdict = computeKeylessVerdict(signers, options?.expectedPublisher);
+  const verdict = computeKeylessVerdict(signers, expected);
   const identity = {
     identityVerified: verdict.identityVerified,
     ...(verdict.trustedPublisher && { trustedPublisher: verdict.trustedPublisher }),

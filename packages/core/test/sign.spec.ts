@@ -10,6 +10,9 @@ import {
   buildSignablePayload,
   validateSigningKey,
   uint8ToBase64,
+  verify,
+  verifyFromAuthor,
+  VerifyErrorCode,
 } from "../src/index";
 
 const SAMPLE_MD = `---
@@ -409,7 +412,65 @@ describe("validateSigningKey", () => {
       validateSigningKey(privateKey, "example.com", "key_test", {
         fetch: (async () => new Response("Not found", { status: 404 })) as typeof globalThis.fetch,
       }),
-    ).rejects.toThrow("failed to fetch");
+    ).rejects.toThrow("Cannot validate key");
+  });
+});
+
+describe("validateSigningKey publisher hardening", () => {
+  function recorder(keys: unknown[]) {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      calls.push({ url, init });
+      return Response.json({ keys });
+    }) as typeof globalThis.fetch;
+    return { calls, fetch };
+  }
+
+  it("rejects the bounty PoC publisher before any request", async () => {
+    const { privateKey } = await generateKeyPair();
+    const { calls, fetch } = recorder([]);
+    await expect(validateSigningKey(privateKey, "localhost@attacker.test:5125", "key_test", { fetch })).rejects.toThrow("Invalid publisher");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses a local publisher without opt-in", async () => {
+    const { privateKey } = await generateKeyPair();
+    const { calls, fetch } = recorder([]);
+    await expect(validateSigningKey(privateKey, "localhost:5000", "key_test", { fetch })).rejects.toThrow("allowInsecureLocalhost");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("fetches a local publisher over HTTP only with opt-in", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const { calls, fetch } = recorder([{ keyId: "key_test", algorithm: "ed25519", publicKey: uint8ToBase64(publicKey), expires: "2099-01-01T00:00:00Z" }]);
+    await validateSigningKey(privateKey, "localhost:5000", "key_test", { fetch, allowInsecureLocalhost: true });
+    expect(calls.map((c) => c.url)).toEqual(["http://localhost:5000/.well-known/notar-keys.json"]);
+  });
+
+  it("fetches public publishers over HTTPS with redirects disabled", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const { calls, fetch } = recorder([{ keyId: "key_test", algorithm: "ed25519", publicKey: uint8ToBase64(publicKey), expires: "2099-01-01T00:00:00Z" }]);
+    await validateSigningKey(privateKey, "Example.com", "key_test", { fetch });
+    expect(calls[0]!.url).toBe("https://example.com/.well-known/notar-keys.json");
+    expect(calls[0]!.init?.redirect).toBe("manual");
+  });
+});
+
+describe("signing with a non-host publisher", () => {
+  it("still signs for the pinned-key workflow but fails keyless verification", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const md = SAMPLE_MD.replace("author: example.com", "author: Jane Doe");
+    const signed = await signFile(md, privateKey, {});
+    expect((await verify(signed, publicKey)).valid).toBe(true);
+    const keyless = await verifyFromAuthor(signed, { fetch: (async () => { throw new Error("no network expected"); }) as typeof globalThis.fetch });
+    expect(keyless.details?.signers![0].code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+  });
+
+  it("stores a mixed-case publisher verbatim", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "Example.com" });
+    expect(parseFile(signed).data.signatures![0]!.publisher).toBe("Example.com");
   });
 });
 

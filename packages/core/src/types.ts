@@ -5,6 +5,8 @@ export enum VerifyErrorCode {
   SIGNATURE_MISMATCH = "SIGNATURE_MISMATCH",
   NO_MATCHING_SIGNATURE = "NO_MATCHING_SIGNATURE",
   UNTRUSTED_PUBLISHER = "UNTRUSTED_PUBLISHER",
+  INVALID_PUBLISHER = "INVALID_PUBLISHER",
+  TOO_MANY_SIGNATURES = "TOO_MANY_SIGNATURES",
   KEY_NOT_FOUND = "KEY_NOT_FOUND",
   KEY_EXPIRED = "KEY_EXPIRED",
   KEY_REVOKED = "KEY_REVOKED",
@@ -63,13 +65,15 @@ export interface KeyManifest {
   keys: PublicKeyEntry[];
 }
 
+export type KeySource = "https" | "http" | "dns";
+
 export interface SignerResult {
   keyId: string;
   publisher: string;
   valid: boolean;
   code?: VerifyErrorCode;
   reason?: string;
-  keySource?: "https" | "dns";
+  keySource?: KeySource;
   keyExpires?: string;
 }
 
@@ -107,6 +111,7 @@ export interface VerifyOptions {
   now?: Date;
   resolveTxt?: boolean;
   expectedPublisher?: string;
+  allowInsecureLocalhost?: boolean;
 }
 
 export interface DnsTxtKeyRecord {
@@ -124,4 +129,5 @@ export interface SignFileOptions {
 export interface ValidateSigningKeyOptions {
   fetch?: typeof globalThis.fetch;
   now?: Date;
+  allowInsecureLocalhost?: boolean;
 }

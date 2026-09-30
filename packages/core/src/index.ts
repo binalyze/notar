@@ -17,6 +17,7 @@ export type {
   SignatureEntry,
   SignFileOptions,
   ValidateSigningKeyOptions,
+  KeySource,
 } from "./types.js";
 
 export { generateKeyPair, derivePublicKey } from "./keys.js";
@@ -37,6 +38,26 @@ export {
   parseDnsTxtRecord,
   formatDnsTxtRecord,
 } from "./verify.js";
+
+// Publisher validation (shared by every key-discovery path)
+export {
+  parsePublisher,
+  isValidKeyId,
+  isLocalHost,
+  keysUrl,
+  dnsName,
+  fetchKeyManifest,
+  displaySafe,
+} from "./publisher.js";
+
+export type {
+  ParsedPublisher,
+  PublisherParseResult,
+  Transport,
+  KeysUrlResult,
+  KeyManifestResult,
+  FetchKeyManifestOptions,
+} from "./publisher.js";
 
 export {
   parse as parseFrontMatter,
