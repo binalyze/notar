@@ -322,7 +322,7 @@ describe("verifyFromAuthor", () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     const result = await verifyFromAuthor(signed, {
       fetch: mockFetchWithKeys([
@@ -339,7 +339,7 @@ describe("verifyFromAuthor", () => {
     const zip = zipSync({ "file.txt": enc("hello") });
     const signed = await signPackage(zip, PKG_META, privateKey);
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     const result = await verifyFromAuthor(signed, {
       fetch: mockFetchWithKeys([
@@ -370,7 +370,7 @@ describe("verifyFromAuthor", () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     const result = await verifyFromAuthor(signed, {
       fetch: mockFetchWithKeys([
@@ -437,7 +437,7 @@ signatures:
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     const result = await verifyFromAuthor(signed, {
       fetch: mockFetchWithKeys([
@@ -479,7 +479,7 @@ signatures:
     const tampered = zipSync(entries);
 
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
     const result = await verifyFromAuthor(tampered, {
       fetch: mockFetchWithKeys([
         { keyId: "key_test", algorithm: "ed25519", publicKey: pubKeyB64, expires: futureDate },
@@ -638,7 +638,7 @@ describe("verifyFromAuthor identity binding", () => {
     }) as typeof globalThis.fetch;
   }
 
-  const FUTURE = new Date("2030-01-01T00:00:00Z").toISOString();
+  const FUTURE = "2099-01-01T00:00:00.000Z";
   const keyEntry = (keyId: string, publicKey: string) => ({ keyId, algorithm: "ed25519", publicKey, expires: FUTURE });
 
   it("tampered doc + attacker co-signature is invalid (no masking by a passing signer)", async () => {
@@ -829,7 +829,7 @@ describe("verifyFromAuthor identity binding", () => {
 // -- Publisher hardening (bounty #1732 class) ---------------------------------
 
 describe("verifyFromAuthor publisher hardening", () => {
-  const FUTURE = new Date("2030-01-01T00:00:00Z").toISOString();
+  const FUTURE = "2099-01-01T00:00:00.000Z";
   const keyEntry = (keyId: string, publicKey: Uint8Array) => ({ keyId, algorithm: "ed25519", publicKey: uint8ToBase64(publicKey), expires: FUTURE });
 
   // Records every outbound request; serves manifests keyed on the exact requested URL.

@@ -337,7 +337,7 @@ describe("validateSigningKey", () => {
   it("succeeds when private key matches published public key", async () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     await expect(
       validateSigningKey(privateKey, "example.com", "key_test", {
@@ -352,7 +352,7 @@ describe("validateSigningKey", () => {
     const keyA = await generateKeyPair();
     const keyB = await generateKeyPair();
     const pubKeyB64 = uint8ToBase64(keyB.publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     await expect(
       validateSigningKey(keyA.privateKey, "example.com", "key_test", {
@@ -366,7 +366,7 @@ describe("validateSigningKey", () => {
   it("throws when keyId is not found", async () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     await expect(
       validateSigningKey(privateKey, "example.com", "missing_key", {
@@ -394,7 +394,7 @@ describe("validateSigningKey", () => {
   it("throws when key is revoked", async () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     await expect(
       validateSigningKey(privateKey, "example.com", "key_test", {

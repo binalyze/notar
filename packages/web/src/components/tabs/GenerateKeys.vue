@@ -49,6 +49,7 @@ const wellKnownUrl = computed(() => {
   const target = parsedDomain.value && keysUrl(parsedDomain.value, true);
   return target && target.ok ? target.url : "";
 });
+const httpsLabel = computed(() => (parsedDomain.value?.local ? "HTTP (.well-known) — insecure, dev only" : "HTTPS (.well-known)"));
 // Local publishers have no DNS fallback, so only HTTPS publishing is offered for them.
 const dnsRecordName = computed(() => (parsedDomain.value && keyId.value ? dnsName(parsedDomain.value, keyId.value) : null));
 watch([dnsRecordName, keyId], ([name, id]) => {
@@ -318,7 +319,7 @@ async function validate() {
             ]"
             @click="publishMode = 'https'"
           >
-            HTTPS (.well-known)
+            {{ httpsLabel }}
           </button>
         </div>
 
