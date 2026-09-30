@@ -246,3 +246,13 @@ export function displaySafe(value: unknown): string {
   }
   return out;
 }
+
+// JSON.stringify already escapes C0 controls; this also escapes C1, invisible, and bidi characters.
+export function jsonSafe(value: unknown): string {
+  let out = "";
+  for (const ch of JSON.stringify(value, null, 2) ?? "") {
+    const code = ch.codePointAt(0)!;
+    out += code > 0x1f && isUnsafeChar(code) ? `\\u${code.toString(16).padStart(4, "0")}` : ch;
+  }
+  return out;
+}

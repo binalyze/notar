@@ -6,6 +6,7 @@ import {
   verifyFromAuthor,
   base64ToUint8,
   displaySafe,
+  jsonSafe,
   VerifyErrorCode,
 } from "../../index.js";
 import type { VerifyResult } from "../../index.js";
@@ -123,7 +124,7 @@ export const verify = defineCommand({
     }
 
     if (args.json) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(jsonSafe(result));
     } else {
       console.log(formatResult(result));
     }

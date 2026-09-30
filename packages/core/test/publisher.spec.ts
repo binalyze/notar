@@ -6,6 +6,7 @@ import {
   dnsName,
   fetchKeyManifest,
   displaySafe,
+  jsonSafe,
   generateKeyPair,
   uint8ToBase64,
 } from "../src/index";
@@ -259,6 +260,15 @@ describe("fetchKeyManifest", () => {
     const { fetch } = recorder(() => { throw new TypeError("redirect mode is set to error"); });
     const r = await fetchKeyManifest(parsed("down.test"), { fetch });
     expect(r).toMatchObject({ ok: false, code: "NETWORK_ERROR" });
+  });
+});
+
+describe("jsonSafe", () => {
+  it("keeps valid JSON while escaping bidi and C1 characters", () => {
+    const value = { publisher: "a\u202Eb", reason: "x\u0085y\nz" };
+    const out = jsonSafe(value);
+    for (const ch of ["\u202E", "\u0085"]) expect(out).not.toContain(ch);
+    expect(JSON.parse(out)).toEqual(value);
   });
 });
 

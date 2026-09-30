@@ -4,7 +4,7 @@
       "keyId": "key_ba1094403d05",
       "algorithm": "ed25519",
       "publicKey": "s8InPsu4Crn91IblVYxBLWNxVCXUGhoGpo6dRoORG44=",
-      "expires": "2027-02-18T22:44:44.519Z",
+      "expires": "2099-12-31T00:00:00.000Z",
       "revoked": false
     }
   ]

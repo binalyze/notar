@@ -48,6 +48,7 @@ export {
   dnsName,
   fetchKeyManifest,
   displaySafe,
+  jsonSafe,
 } from "./publisher.js";
 
 export type {

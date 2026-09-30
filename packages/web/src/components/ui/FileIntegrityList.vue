@@ -43,10 +43,10 @@ const failedCount = computed(() => props.files.filter((f) => !f.valid).length);
       </button>
       <div v-if="!file.valid && expandedPaths.has(file.path)" class="px-2.5 pb-2 space-y-0.5 text-xs">
         <div v-if="file.expectedHash" class="text-muted-foreground">
-          Expected: <code class="text-foreground">{{ file.expectedHash }}</code>
+          Expected: <code class="text-foreground">{{ displaySafe(file.expectedHash) }}</code>
         </div>
         <div v-if="file.actualHash" class="text-muted-foreground">
-          Actual: <code class="text-destructive">{{ file.actualHash }}</code>
+          Actual: <code class="text-destructive">{{ displaySafe(file.actualHash) }}</code>
         </div>
         <div v-if="!file.actualHash" class="text-destructive">File missing from archive</div>
       </div>

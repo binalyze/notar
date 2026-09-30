@@ -5,7 +5,7 @@ import DropZone from "@/components/ui/DropZone.vue";
 import SampleDropdown from "@/components/ui/SampleDropdown.vue";
 import ResultBadge from "@/components/ui/ResultBadge.vue";
 import { unzipSync } from "fflate";
-import { parseFrontMatter, uint8ToBase64 } from "@binalyze/notar";
+import { parseFrontMatter, uint8ToBase64, displaySafe } from "@binalyze/notar";
 import type { SignatureEntry, VerifyResult } from "@binalyze/notar";
 
 interface FileMetadata {
@@ -392,25 +392,25 @@ onUnmounted(() => {
           <template v-if="metadata.name">
             <span class="text-muted-foreground">Name</span>
             <span class="text-foreground font-mono text-xs">{{
-              metadata.name
+              displaySafe(metadata.name)
             }}</span>
           </template>
           <template v-if="metadata.description">
             <span class="text-muted-foreground">Description</span>
             <span class="text-foreground text-xs">{{
-              metadata.description
+              displaySafe(metadata.description)
             }}</span>
           </template>
           <template v-if="metadata.version">
             <span class="text-muted-foreground">Version</span>
             <span class="text-foreground font-mono text-xs">{{
-              metadata.version
+              displaySafe(metadata.version)
             }}</span>
           </template>
           <template v-if="metadata.author">
             <span class="text-muted-foreground">Author</span>
             <span class="text-foreground font-mono text-xs">{{
-              metadata.author
+              displaySafe(metadata.author)
             }}</span>
           </template>
         </div>
@@ -432,10 +432,10 @@ onUnmounted(() => {
             <div class="flex items-center gap-2">
               <span class="text-muted-foreground">Signer {{ i + 1 }}:</span>
               <code class="text-foreground">{{
-                sig.publisher || "(unknown)"
+                displaySafe(sig.publisher) || "(unknown)"
               }}</code>
               <span v-if="sig.keyId" class="text-muted-foreground"
-                >({{ sig.keyId }})</span
+                >({{ displaySafe(sig.keyId) }})</span
               >
             </div>
           </div>
