@@ -154,6 +154,11 @@ describe("dnsName", () => {
     expect(dnsName(parsed("localhost:5000"), "key_x")).toBeNull();
   });
 
+  it("refuses names longer than 253 characters", () => {
+    const host = `${"a".repeat(60)}.${"b".repeat(60)}.${"c".repeat(60)}.${"d".repeat(60)}.com`;
+    expect(dnsName(parsed(host), "key_x")).toBeNull();
+  });
+
   it("refuses invalid keyIds", () => {
     expect(dnsName(parsed("example.com"), "a.evil")).toBeNull();
   });

@@ -1053,6 +1053,18 @@ describe("verifyFromAuthor publisher hardening", () => {
     expect(calls).toEqual([]);
   });
 
+  it("pinned-key verify rejects a publisher whose type was changed", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(entries["MANIFEST.json"]));
+    manifest.signatures[0].publisher = [manifest.signatures[0].publisher];
+    entries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    const result = await verify(zipSync(entries), publicKey);
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.MALFORMED_SIGNATURE);
+  });
+
   it("pinned-key verify tolerates non-string entry fields", async () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);

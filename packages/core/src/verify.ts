@@ -112,7 +112,8 @@ export async function verifyFile(
   let anyValid = false;
 
   for (const entry of signatures) {
-    const checked = checkEntrySignature(entry);
+    // The publisher is part of the signed payload; a non-string would be coerced to the same bytes.
+    const checked = typeof entry?.publisher === "string" ? checkEntrySignature(entry) : { reason: "publisher must be a string" };
     if ("reason" in checked) {
       signers.push({
         keyId: publisherLabel(entry?.keyId),
@@ -246,7 +247,8 @@ export async function verifyPackage(
   let anyValid = false;
 
   for (const entry of signatures) {
-    const checked = checkEntrySignature(entry);
+    // The publisher is part of the signed payload; a non-string would be coerced to the same bytes.
+    const checked = typeof entry?.publisher === "string" ? checkEntrySignature(entry) : { reason: "publisher must be a string" };
     if ("reason" in checked) {
       signers.push({
         keyId: publisherLabel(entry?.keyId),

@@ -51,8 +51,8 @@ const wellKnownUrl = computed(() => {
 });
 // Local publishers have no DNS fallback, so only HTTPS publishing is offered for them.
 const dnsRecordName = computed(() => (parsedDomain.value && keyId.value ? dnsName(parsedDomain.value, keyId.value) : null));
-watch(dnsRecordName, (name) => {
-  if (!name && keyId.value) publishMode.value = "https";
+watch([dnsRecordName, keyId], ([name, id]) => {
+  if (!name && id) publishMode.value = "https";
 });
 
 const completedSteps = ref(new Set<number>());

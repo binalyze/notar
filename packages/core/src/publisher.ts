@@ -106,7 +106,8 @@ export function keysUrl(input: ParsedPublisher, allowInsecureLocalhost = false):
 export function dnsName(input: ParsedPublisher, keyId: string): string | null {
   const publisher = revalidate(input);
   if (!publisher || publisher.local || !isValidKeyId(keyId)) return null;
-  return `notar.${keyId}.${publisher.host}`;
+  const name = `notar.${keyId}.${publisher.host}`;
+  return name.length <= MAX_HOST_LENGTH ? name : null;
 }
 
 // -- Key manifest fetch -------------------------------------------------------
