@@ -122,6 +122,13 @@ describe("keysUrl", () => {
     });
   });
 
+  it("re-validates hand-crafted parsed values instead of trusting their fields", () => {
+    const forged = { host: "attacker.test", canonical: "attacker.test", local: true };
+    expect(keysUrl(forged, true)).toMatchObject({ ok: true, transport: "https", url: "https://attacker.test/.well-known/notar-keys.json" });
+    expect(keysUrl({ host: "x", canonical: "localhost@attacker.test", local: true }, true).ok).toBe(false);
+    expect(dnsName({ host: "evil.test", canonical: "localhost", local: false }, "key_x")).toBeNull();
+  });
+
   it("never selects HTTP for prefix look-alikes", () => {
     const r = keysUrl(parsed("localhost.evil.com"), true);
     expect(r).toMatchObject({ ok: true, transport: "https", url: "https://localhost.evil.com/.well-known/notar-keys.json" });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from "vue";
+import { ref, computed, nextTick, watch } from "vue";
 import Button from "@/components/ui/Button.vue";
 import CodeBlock from "@/components/ui/CodeBlock.vue";
 import { XCircle, ShieldCheck } from "lucide-vue-next";
@@ -8,6 +8,8 @@ import {
   uint8ToBase64,
   formatDnsTxtRecord,
   parsePublisher,
+  keysUrl,
+  dnsName,
 } from "@binalyze/notar";
 
 const props = defineProps<{
@@ -35,11 +37,23 @@ const publicKey = ref("");
 const keyId = ref("");
 const wellKnownJson = ref("");
 const dnsTxtRecord = ref("");
-const dnsTxtName = ref("");
 const publishMode = ref<"https" | "dns">("dns");
 const protocol = window.location.protocol + "//";
 
-const validDomain = computed(() => parsePublisher(domain.value.trim()).ok);
+const parsedDomain = computed(() => {
+  const parsed = parsePublisher(domain.value.trim());
+  return parsed.ok ? parsed.value : null;
+});
+const validDomain = computed(() => parsedDomain.value !== null);
+const wellKnownUrl = computed(() => {
+  const target = parsedDomain.value && keysUrl(parsedDomain.value, true);
+  return target && target.ok ? target.url : "";
+});
+// Local publishers have no DNS fallback, so only HTTPS publishing is offered for them.
+const dnsRecordName = computed(() => (parsedDomain.value && keyId.value ? dnsName(parsedDomain.value, keyId.value) : null));
+watch(dnsRecordName, (name) => {
+  if (!name && keyId.value) publishMode.value = "https";
+});
 
 const completedSteps = ref(new Set<number>());
 const keyCopied = ref(false);
@@ -110,13 +124,12 @@ async function generate() {
       2,
     );
     dnsTxtRecord.value = dnsTxt.value;
-    dnsTxtName.value = dnsTxt.fqdn;
     generated.value = true;
     keyCopied.value = false;
     scrollTo(step2El);
     emit("generated", privateKeyB64);
     emit("publicKeySet", publicKeyB64);
-    emit("domainSet", domain.value.trim());
+    emit("domainSet", parsedDomain.value!.canonical);
     emit("keyIdSet", id);
   } finally {
     loading.value = false;
@@ -152,7 +165,7 @@ async function validate() {
     const res = await fetch("/api/lookup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain: domain.value.trim(), keyId: keyId.value }),
+      body: JSON.stringify({ domain: parsedDomain.value?.canonical ?? domain.value.trim(), keyId: keyId.value }),
     });
     if (!res.ok) {
       validationError.value = `Validation request failed (HTTP ${res.status}). Please try again.`;
@@ -291,6 +304,7 @@ async function validate() {
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-transparent text-foreground border-border hover:bg-muted',
             ]"
+            :disabled="!dnsRecordName"
             @click="publishMode = 'dns'"
           >
             DNS TXT Record
@@ -312,7 +326,7 @@ async function validate() {
           <p class="text-sm text-muted-foreground">
             Host this JSON at
             <code class="text-xs bg-muted px-1.5 py-0.5 rounded"
-              >{{ protocol }}{{ domain }}/.well-known/notar-keys.json</code
+              >{{ wellKnownUrl }}</code
             >
           </p>
           <CodeBlock
@@ -327,7 +341,7 @@ async function validate() {
             Add this DNS TXT record to your domain:
           </p>
           <CodeBlock
-            :code="dnsTxtName + '.' + domain"
+            :code="dnsRecordName ?? ''"
             label="Record Name"
             @copied="onStepCopied(3)"
           />
@@ -394,7 +408,7 @@ async function validate() {
               >
                 Make sure
                 <code class="bg-muted px-1 py-0.5 rounded"
-                  >{{ protocol }}{{ domain }}/.well-known/notar-keys.json</code
+                  >{{ wellKnownUrl }}</code
                 >
                 is publicly accessible and contains your key.
               </p>
@@ -404,7 +418,7 @@ async function validate() {
               >
                 Make sure the DNS TXT record for
                 <code class="bg-muted px-1 py-0.5 rounded"
-                  >notar.{{ keyId }}.{{ domain }}</code
+                  >{{ dnsRecordName }}</code
                 >
                 is published and has propagated.
               </p>

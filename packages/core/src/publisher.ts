@@ -86,7 +86,15 @@ export type KeysUrlResult =
   | { ok: true; url: string; transport: Transport }
   | { ok: false; reason: string };
 
-export function keysUrl(publisher: ParsedPublisher, allowInsecureLocalhost = false): KeysUrlResult {
+// Parsed values are plain objects a caller could hand-craft; re-derive them before any network use.
+function revalidate(publisher: ParsedPublisher): ParsedPublisher | null {
+  const parsed = parsePublisher(publisher?.canonical);
+  return parsed.ok ? parsed.value : null;
+}
+
+export function keysUrl(input: ParsedPublisher, allowInsecureLocalhost = false): KeysUrlResult {
+  const publisher = revalidate(input);
+  if (!publisher) return { ok: false, reason: "publisher is not a valid hostname" };
   if (publisher.local && !allowInsecureLocalhost) {
     return { ok: false, reason: `local publisher ${publisher.canonical} requires allowInsecureLocalhost` };
   }
@@ -95,8 +103,9 @@ export function keysUrl(publisher: ParsedPublisher, allowInsecureLocalhost = fal
   return { ok: true, url, transport };
 }
 
-export function dnsName(publisher: ParsedPublisher, keyId: string): string | null {
-  if (publisher.local || !isValidKeyId(keyId)) return null;
+export function dnsName(input: ParsedPublisher, keyId: string): string | null {
+  const publisher = revalidate(input);
+  if (!publisher || publisher.local || !isValidKeyId(keyId)) return null;
   return `notar.${keyId}.${publisher.host}`;
 }
 
