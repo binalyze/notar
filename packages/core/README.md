@@ -87,6 +87,20 @@ const result = await verifyFromAuthor(signed, {
 });
 ```
 
+> **Publisher rules (v2.0.1):** Keyless verification treats every `publisher`,
+> `keyId`, and key manifest in a file as untrusted input. A publisher must be a
+> bare, lowercase-insensitive ASCII hostname (`example.com`) with no userinfo,
+> path, query, fragment, percent-encoding, port, IP literal, trailing dot, or
+> IDN/punycode label; otherwise the signer fails with `INVALID_PUBLISHER` and no
+> network request is made. Key manifests are fetched over HTTPS only, without
+> following redirects, with a 5 s timeout and a 64 KiB size cap. `localhost` and
+> `127.0.0.1` (optionally with a port) are fetched over plain HTTP only when
+> `allowInsecureLocalhost: true` is passed (`--allow-insecure-localhost` in the
+> CLI); `keySource` then reports `"http"`. Files with more than 16 signatures
+> fail with `TOO_MANY_SIGNATURES`. With `expectedPublisher`, only that
+> publisher's key is fetched. Pinned-key `verify(input, publicKey)` does not
+> contact the network and does not validate `publisher`.
+
 ### Format-specific
 
 - **`signFile(content, privateKey, opts)`** / **`signPackage(zip, metadata, privateKey)`**
@@ -99,6 +113,8 @@ const result = await verifyFromAuthor(signed, {
 - **`parseFrontMatter(content)`** / **`stringifyFrontMatter(data, body)`** — YAML front matter parsing
 - **`fetchPublicKey(domain, keyId, options?)`** / **`fetchPublicKeys(domain, options?)`** — Key discovery
 - **`validateSigningKey(privateKey, publisher, keyId, options?)`** — Pre-flight check that a private key matches a published public key
+- **`parsePublisher(value)`** / **`keysUrl(parsed, allowInsecureLocalhost?)`** / **`dnsName(parsed, keyId)`** / **`fetchKeyManifest(parsed, options?)`** — The single validated path for key discovery; use these instead of building URLs yourself
+- **`displaySafe(value)`** — Escape control and bidi characters in file-derived strings before displaying them
 
 ### DNS TXT Records
 

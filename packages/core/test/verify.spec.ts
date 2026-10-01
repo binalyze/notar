@@ -322,7 +322,7 @@ describe("verifyFromAuthor", () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     const result = await verifyFromAuthor(signed, {
       fetch: mockFetchWithKeys([
@@ -339,7 +339,7 @@ describe("verifyFromAuthor", () => {
     const zip = zipSync({ "file.txt": enc("hello") });
     const signed = await signPackage(zip, PKG_META, privateKey);
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     const result = await verifyFromAuthor(signed, {
       fetch: mockFetchWithKeys([
@@ -370,7 +370,7 @@ describe("verifyFromAuthor", () => {
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     const result = await verifyFromAuthor(signed, {
       fetch: mockFetchWithKeys([
@@ -409,7 +409,7 @@ author: example.com
 signatures:
   - keyId: ""
     publisher: example.com
-    value: "ed25519:abc123"
+    value: "ed25519:${"A".repeat(86)}=="
 ---
 # Test
 `;
@@ -437,7 +437,7 @@ signatures:
     const { privateKey, publicKey } = await generateKeyPair();
     const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
 
     const result = await verifyFromAuthor(signed, {
       fetch: mockFetchWithKeys([
@@ -479,7 +479,7 @@ signatures:
     const tampered = zipSync(entries);
 
     const pubKeyB64 = uint8ToBase64(publicKey);
-    const futureDate = new Date("2030-01-01T00:00:00Z").toISOString();
+    const futureDate = "2099-01-01T00:00:00.000Z";
     const result = await verifyFromAuthor(tampered, {
       fetch: mockFetchWithKeys([
         { keyId: "key_test", algorithm: "ed25519", publicKey: pubKeyB64, expires: futureDate },
@@ -638,7 +638,7 @@ describe("verifyFromAuthor identity binding", () => {
     }) as typeof globalThis.fetch;
   }
 
-  const FUTURE = new Date("2030-01-01T00:00:00Z").toISOString();
+  const FUTURE = "2099-01-01T00:00:00.000Z";
   const keyEntry = (keyId: string, publicKey: string) => ({ keyId, algorithm: "ed25519", publicKey, expires: FUTURE });
 
   it("tampered doc + attacker co-signature is invalid (no masking by a passing signer)", async () => {
@@ -823,5 +823,280 @@ describe("verifyFromAuthor identity binding", () => {
     expect(result.code).toBe(VerifyErrorCode.HASH_MISMATCH);
     expect(result.details?.identityVerified).toBe(false);
     expect(result.details?.trustedPublisher).toBeUndefined();
+  });
+});
+
+// -- Publisher hardening (bounty #1732 class) ---------------------------------
+
+describe("verifyFromAuthor publisher hardening", () => {
+  const FUTURE = "2099-01-01T00:00:00.000Z";
+  const keyEntry = (keyId: string, publicKey: Uint8Array) => ({ keyId, algorithm: "ed25519", publicKey: uint8ToBase64(publicKey), expires: FUTURE });
+
+  // Records every outbound request; serves manifests keyed on the exact requested URL.
+  function recorder(manifests: Record<string, unknown[]> = {}, respond?: (url: string) => Response | undefined) {
+    const calls: string[] = [];
+    const fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      calls.push(url);
+      const custom = respond?.(url);
+      if (custom) return custom;
+      if (manifests[url]) return Response.json({ keys: manifests[url] });
+      return new Response("Not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+    return { calls, fetch };
+  }
+
+  const manifestUrl = (origin: string) => `${origin}/.well-known/notar-keys.json`;
+
+  it("bounty PoC: userinfo publisher is rejected with no outbound request", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_ba1094403d05", publisher: "localhost@attacker.test:5125" });
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(signed, { fetch });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+    expect(calls).toEqual([]);
+  });
+
+  it("ZIP parity: userinfo publisher is rejected with no outbound request", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), { ...PKG_META, publisher: "localhost@attacker.test:5125" }, privateKey);
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(signed, { fetch, allowInsecureLocalhost: true });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+    expect(calls).toEqual([]);
+  });
+
+  it("prefix look-alike hosts always use HTTPS", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "localhost.evil.com" });
+    const { calls, fetch } = recorder({ [manifestUrl("https://localhost.evil.com")]: [keyEntry("key_test", publicKey)] });
+    const result = await verifyFromAuthor(signed, { fetch, allowInsecureLocalhost: true, resolveTxt: false });
+    expect(result.valid).toBe(true);
+    expect(result.details?.signers![0].keySource).toBe("https");
+    expect(calls).toEqual([manifestUrl("https://localhost.evil.com")]);
+  });
+
+  it("local publisher without opt-in is rejected with no outbound request", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "localhost:5123" });
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(signed, { fetch });
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+    expect(calls).toEqual([]);
+  });
+
+  it("local publisher with opt-in uses HTTP and reports it", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "localhost:5123" });
+    const { calls, fetch } = recorder({ [manifestUrl("http://localhost:5123")]: [keyEntry("key_test", publicKey)] });
+    const result = await verifyFromAuthor(signed, { fetch, allowInsecureLocalhost: true });
+    expect(result.valid).toBe(true);
+    expect(result.details?.signers![0].keySource).toBe("http");
+    expect(calls).toEqual([manifestUrl("http://localhost:5123")]);
+  });
+
+  it("local publisher never falls back to DNS", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "localhost:5000" });
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(signed, { fetch, allowInsecureLocalhost: true });
+    expect(result.valid).toBe(false);
+    expect(calls).toEqual([manifestUrl("http://localhost:5000")]);
+  });
+
+  it("invalid keyId never reaches a DNS query", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "a.evil", publisher: "example.com" });
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(signed, { fetch });
+    expect(result.valid).toBe(false);
+    expect(calls).toEqual([manifestUrl("https://example.com")]);
+  });
+
+  it("DNS fallback uses the canonical host", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "Example.COM" });
+    const { calls, fetch } = recorder();
+    await verifyFromAuthor(signed, { fetch });
+    expect(calls[0]).toBe(manifestUrl("https://example.com"));
+    expect(calls[1]).toContain(`name=${encodeURIComponent("notar.key_test.example.com")}`);
+  });
+
+  it("mixed-case publisher still verifies against the raw signed string", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "Example.COM" });
+    const { fetch } = recorder({ [manifestUrl("https://example.com")]: [keyEntry("key_test", publicKey)] });
+    const result = await verifyFromAuthor(signed, { fetch, resolveTxt: false, expectedPublisher: "example.com" });
+    expect(result.valid).toBe(true);
+    expect(result.details?.identityVerified).toBe(true);
+    expect(result.details?.trustedPublisher).toBe("example.com");
+  });
+
+  it("expectedPublisher is compared in canonical form", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const { fetch } = recorder({ [manifestUrl("https://example.com")]: [keyEntry("key_test", publicKey)] });
+    const result = await verifyFromAuthor(signed, { fetch, resolveTxt: false, expectedPublisher: "Example.com" });
+    expect(result.valid).toBe(true);
+    expect(result.details?.identityVerified).toBe(true);
+  });
+
+  it.each(["localhost@evil.com", "evil.com/x", "evil.com:443"])("invalid expectedPublisher %s is rejected before any request", async (expected) => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(signed, { fetch, expectedPublisher: expected });
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+    expect(calls).toEqual([]);
+  });
+
+  it("a valid signer does not mask an invalid-publisher signer", async () => {
+    const a = await generateKeyPair();
+    const b = await generateKeyPair();
+    let signed = await signFile(SAMPLE_MD, a.privateKey, { keyId: "ka", publisher: "a.com" });
+    signed = await signFile(signed, b.privateKey, { keyId: "kb", publisher: "b.com/evil" });
+    const { fetch } = recorder({ [manifestUrl("https://a.com")]: [keyEntry("ka", a.publicKey)] });
+    const result = await verifyFromAuthor(signed, { fetch, resolveTxt: false });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers!.find((s) => s.keyId === "kb")?.code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+  });
+
+  it("does not follow a redirect from a valid public publisher", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "attacker.test" });
+    const { calls, fetch } = recorder({}, (url) => url.includes("notar-keys.json")
+      ? new Response(null, { status: 302, headers: { location: "http://127.0.0.1:5125/.well-known/notar-keys.json" } })
+      : undefined);
+    const result = await verifyFromAuthor(signed, { fetch, resolveTxt: false });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.KEY_FETCH_FAILED);
+    expect(calls).toEqual([manifestUrl("https://attacker.test")]);
+  });
+
+  it("rejects more than 16 signatures before any request", async () => {
+    const entries = Array.from({ length: 17 }, (_, i) => `  - keyId: k${i}\n    publisher: p${i}.example.com\n    value: "ed25519:AAAA"`).join("\n");
+    const md = `---\nname: t\ndescription: t\nversion: "1"\nsignatures:\n${entries}\n---\n# Body\n`;
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(md, { fetch });
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe(VerifyErrorCode.TOO_MANY_SIGNATURES);
+    expect(calls).toEqual([]);
+  });
+
+  it("pinned-key verify also rejects more than 16 signatures", async () => {
+    const { publicKey } = await generateKeyPair();
+    const entries = Array.from({ length: 17 }, (_, i) => `  - keyId: k${i}\n    publisher: p${i}.example.com\n    value: "ed25519:AAAA"`).join("\n");
+    const md = `---\nname: t\ndescription: t\nversion: "1"\nsignatures:\n${entries}\n---\n# Body\n`;
+    expect((await verify(md, publicKey)).code).toBe(VerifyErrorCode.TOO_MANY_SIGNATURES);
+    const { privateKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const zipEntries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(zipEntries["MANIFEST.json"]));
+    manifest.signatures = Array.from({ length: 17 }, () => manifest.signatures[0]);
+    zipEntries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    expect((await verify(zipSync(zipEntries), publicKey)).code).toBe(VerifyErrorCode.TOO_MANY_SIGNATURES);
+  });
+
+  it("with expectedPublisher, only the expected publisher is contacted", async () => {
+    const a = await generateKeyPair();
+    const b = await generateKeyPair();
+    let signed = await signFile(SAMPLE_MD, a.privateKey, { keyId: "ka", publisher: "a.com" });
+    signed = await signFile(signed, b.privateKey, { keyId: "kb", publisher: "b.com" });
+    const { calls, fetch } = recorder({ [manifestUrl("https://a.com")]: [keyEntry("ka", a.publicKey)] });
+    const result = await verifyFromAuthor(signed, { fetch, resolveTxt: false, expectedPublisher: "a.com" });
+    expect(result.valid).toBe(true);
+    expect(calls).toEqual([manifestUrl("https://a.com")]);
+    expect(result.details?.signers!.find((s) => s.publisher === "b.com")?.code).toBe(VerifyErrorCode.UNTRUSTED_PUBLISHER);
+  });
+
+  it.each([[["example.com"]], [42], [null], [{ host: "example.com" }]])("ZIP manifest with non-string publisher %j fails the signer without throwing", async (publisher) => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(entries["MANIFEST.json"]));
+    manifest.signatures[0].publisher = publisher;
+    entries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(zipSync(entries), { fetch });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+    expect(calls).toEqual([]);
+  });
+
+  it("ZIP manifest with non-string value or keyId fails the signer without throwing", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(entries["MANIFEST.json"]));
+    manifest.signatures = [
+      { ...manifest.signatures[0], value: 7 },
+      { ...manifest.signatures[0], keyId: ["x"] },
+    ];
+    entries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    const { fetch } = recorder();
+    const result = await verifyFromAuthor(zipSync(entries), { fetch });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers!.map((s) => s.code)).toEqual([VerifyErrorCode.MALFORMED_SIGNATURE, VerifyErrorCode.MALFORMED_SIGNATURE]);
+  });
+
+  it.each(["pinned", "keyless"])("%s ZIP verify reports a null signature entry per signer", async (mode) => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(entries["MANIFEST.json"]));
+    manifest.signatures = [null];
+    entries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    const { calls, fetch } = recorder();
+    const result = mode === "pinned"
+      ? await verify(zipSync(entries), publicKey)
+      : await verifyFromAuthor(zipSync(entries), { fetch });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.MALFORMED_SIGNATURE);
+    expect(calls).toEqual([]);
+  });
+
+  it("an explicitly empty expectedPublisher is rejected, not ignored", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const { calls, fetch } = recorder();
+    const result = await verifyFromAuthor(signed, { fetch, expectedPublisher: "" });
+    expect(result.code).toBe(VerifyErrorCode.INVALID_PUBLISHER);
+    expect(calls).toEqual([]);
+  });
+
+  it("pinned-key verify rejects a publisher whose type was changed", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(entries["MANIFEST.json"]));
+    manifest.signatures[0].publisher = [manifest.signatures[0].publisher];
+    entries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    const result = await verify(zipSync(entries), publicKey);
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.MALFORMED_SIGNATURE);
+  });
+
+  it("pinned-key verify tolerates non-string entry fields", async () => {
+    const { privateKey, publicKey } = await generateKeyPair();
+    const signed = await signPackage(zipSync({ "a.txt": enc("a") }), PKG_META, privateKey);
+    const entries = unzipSync(signed);
+    const manifest = JSON.parse(new TextDecoder().decode(entries["MANIFEST.json"]));
+    manifest.signatures[0].value = 7;
+    entries["MANIFEST.json"] = enc(JSON.stringify(manifest));
+    const result = await verify(zipSync(entries), publicKey);
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.MALFORMED_SIGNATURE);
+  });
+
+  it("a malformed manifest key does not crash verification", async () => {
+    const { privateKey } = await generateKeyPair();
+    const signed = await signFile(SAMPLE_MD, privateKey, { keyId: "key_test", publisher: "example.com" });
+    const { fetch } = recorder({ [manifestUrl("https://example.com")]: [{ keyId: "key_test", publicKey: 42, expires: FUTURE }] });
+    const result = await verifyFromAuthor(signed, { fetch, resolveTxt: false });
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers![0].code).toBe(VerifyErrorCode.KEY_NOT_FOUND);
   });
 });

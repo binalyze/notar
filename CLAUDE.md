@@ -60,3 +60,12 @@ Pnpm monorepo. Workspaces: `packages/*`.
 - No unnecessary or verbose comments. Keep comments brief and only where truly needed.
 - Keep code vertically compact — no excessive blank lines.
 - When adding shadcn-vue components (`pnpm dlx shadcn-vue@latest init`), remove the `cn` import from generated files — `cn` is auto-imported.
+
+## Security Rules
+
+- Every field read from a signed artifact (`publisher`, `keyId`, `author`, `name`, ZIP paths, key manifests) is attacker input. Treat it that way in sign, verify, CLI, Worker, and UI code.
+- Never build a URL, hostname, or DNS name from such a field. Use `packages/core/src/publisher.ts` (`parsePublisher`, `keysUrl`, `dnsName`, `fetchKeyManifest`). Never duplicate host logic elsewhere.
+- Key-discovery fetches go only through `fetchKeyManifest` (no redirects, timeout, size cap, schema check). Plain HTTP is only for exact `localhost` / `127.0.0.1` behind `allowInsecureLocalhost`; never gate it on `BUILD_MODE`.
+- Escape file-derived strings with `displaySafe` before printing them in the CLI or text exports.
+- `packages/core/test/class-sweep.spec.ts` enforces this. Do not silence it; a reviewed exception needs a same-line `class-sweep-allow: <reason>` comment.
+- When fixing a security report, fix the class: search every sibling code path (core, CLI, Worker, SPA) for the same pattern and add negative tests. See `docs/solutions/2026-09-30-untrusted-publisher-url-authority.md`.

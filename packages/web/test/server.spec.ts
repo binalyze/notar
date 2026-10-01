@@ -1,10 +1,13 @@
 import { describe, test, expect, beforeAll, afterAll } from "vitest";
 import { type ChildProcess, spawn, execSync } from "node:child_process";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 
 const PORT = 5111;
 const BASE = `http://localhost:${PORT}`;
 const PKG_DIR = resolve(import.meta.dirname, "..");
+const SAMPLE_LOCALHOST = resolve(PKG_DIR, "../../samples/signed/localhost/hello-world.md");
+const SAMPLE_KEY_ID = /keyId: (\S+)/.exec(readFileSync(SAMPLE_LOCALHOST, "utf-8"))![1]!;
 
 function freePort() {
   try {
@@ -136,6 +139,73 @@ function apiTests() {
     });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "expectedPublisher requires fromAuthor to be true" });
+  });
+
+  const verifyApi = async (content: string, extra: Record<string, unknown> = {}) => {
+    const res = await fetch(`${BASE}/api/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: Buffer.from(content).toString("base64"), fileName: "doc.md", fromAuthor: true, ...extra }),
+    });
+    expect(res.status).toBe(200);
+    return await res.json() as { valid: boolean; code?: string; details?: { signers?: Array<{ code?: string; keySource?: string; valid: boolean }> } };
+  };
+
+  test("POST /api/verify rejects the bounty #1732 userinfo publisher", async () => {
+    const doc = [
+      "---", "name: poc", "description: poc", 'version: "1.0"', "signatures:",
+      "  - keyId: key_ba1094403d05",
+      '    publisher: "localhost@attacker.test:5125"',
+      `    value: "ed25519:${"A".repeat(86)}=="`,
+      "---", "# Body",
+    ].join("\n");
+    const result = await verifyApi(doc);
+    expect(result.valid).toBe(false);
+    expect(result.details?.signers?.[0]?.code).toBe("INVALID_PUBLISHER");
+  });
+
+  test.each(["", "   "])("POST /api/verify rejects a blank expectedPublisher %j", async (expectedPublisher) => {
+    const res = await fetch(`${BASE}/api/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: Buffer.from("# x").toString("base64"), fileName: "doc.md", fromAuthor: true, expectedPublisher }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("POST /api/verify rejects an invalid expectedPublisher", async () => {
+    const result = await verifyApi(readFileSync(SAMPLE_LOCALHOST, "utf-8"), { expectedPublisher: "evil.com/x" });
+    expect(result.valid).toBe(false);
+    expect(result.code).toBe("INVALID_PUBLISHER");
+  });
+
+  test("POST /api/verify resolves the localhost sample over HTTP in local dev", async () => {
+    const result = await verifyApi(readFileSync(SAMPLE_LOCALHOST, "utf-8"));
+    expect(result.valid).toBe(true);
+    expect(result.details?.signers?.[0]?.keySource).toBe("http");
+  });
+
+  test.each([
+    [{ domain: "localhost@evil.com", keyId: "key_x" }],
+    [{ domain: "evil.com/x", keyId: "key_x" }],
+    [{ domain: "example.com", keyId: "a.b" }],
+  ])("POST /api/lookup rejects %j", async (body) => {
+    const res = await fetch(`${BASE}/api/lookup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("POST /api/lookup finds the dev key on localhost", async () => {
+    const res = await fetch(`${BASE}/api/lookup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain: "localhost:5000", keyId: SAMPLE_KEY_ID }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json() as { https: { found: boolean } }).https.found).toBe(true);
   });
 
   test("POST /api/lookup with missing fields returns 400", async () => {

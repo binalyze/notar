@@ -134,7 +134,7 @@ async function main() {
     keyId = "key_sample";
     console.log("Generated random test key pair:");
   }
-  const publisher = "localhost:5000";
+  const publisher = "localhost:5000"; // class-sweep-allow: dev sample publisher, served over HTTP only with the local opt-in
 
   console.log(`  Public Key: ${uint8ToBase64(publicKey)}`);
   console.log(`  Publisher:  ${publisher}`);

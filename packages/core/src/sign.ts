@@ -2,6 +2,7 @@ import * as ed from "@noble/ed25519";
 import * as fm from "./front-matter.js";
 import { unzipSync, zipSync } from "fflate";
 import { uint8ToBase64, base64ToUint8 } from "./utils.js";
+import { parsePublisher, fetchKeyManifest } from "./publisher.js";
 import type {
   FrontMatter,
   KeyManifest,
@@ -172,35 +173,26 @@ export async function signPackage(
 
 // -- Pre-flight validation ----------------------------------------------------
 
-function isLocal(host: string): boolean {
-  return host.startsWith("localhost") || host.startsWith("127.0.0.1");
-}
-
-function keysUrl(publisher: string): string {
-  const protocol = isLocal(publisher) ? "http" : "https";
-  return `${protocol}://${publisher}/.well-known/notar-keys.json`;
-}
-
 export async function validateSigningKey(
   privateKey: Uint8Array,
   publisher: string,
   keyId?: string,
   options?: ValidateSigningKeyOptions,
 ): Promise<void> {
-  const fetchFn = options?.fetch ?? globalThis.fetch;
   const now = options?.now ?? new Date();
   const derivedPub = await ed.getPublicKeyAsync(privateKey);
   const derivedB64 = uint8ToBase64(derivedPub);
 
-  const url = keysUrl(publisher);
-  let manifest: KeyManifest;
-  try {
-    const res = await fetchFn(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    manifest = (await res.json()) as KeyManifest;
-  } catch (e) {
-    throw new Error(`Cannot validate key: failed to fetch ${url} — ${e instanceof Error ? e.message : e}`);
+  const parsed = parsePublisher(publisher);
+  if (!parsed.ok) throw new Error(`Invalid publisher: ${parsed.reason}`);
+  const result = await fetchKeyManifest(parsed.value, {
+    fetch: options?.fetch,
+    allowInsecureLocalhost: options?.allowInsecureLocalhost,
+  });
+  if (!result.ok) {
+    throw new Error(`Cannot validate key: ${result.url ? `failed to fetch ${result.url} — ` : ""}${result.reason}`);
   }
+  const manifest: KeyManifest = { keys: result.keys };
 
   const candidates = keyId
     ? manifest.keys.filter((k) => k.keyId === keyId)

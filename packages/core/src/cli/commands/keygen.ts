@@ -5,6 +5,9 @@ import {
   generateKeyPair,
   uint8ToBase64,
   formatDnsTxtRecord,
+  parsePublisher,
+  keysUrl,
+  dnsName,
 } from "../../index.js";
 
 export const keygen = defineCommand({
@@ -14,7 +17,12 @@ export const keygen = defineCommand({
     "key-id": { type: "string", description: "Key ID (defaults to key_YYYYMMDD)" },
   },
   async run({ args }) {
-    const domain = args.domain;
+    const parsed = parsePublisher(args.domain);
+    if (!parsed.ok) {
+      console.error(`Error: invalid domain (${parsed.reason}).`);
+      process.exit(2);
+    }
+    const domain = parsed.value.canonical;
     const today = new Date();
     const keyId = args["key-id"] || `key_${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
 
@@ -43,9 +51,13 @@ export const keygen = defineCommand({
     console.log(`  Key ID:      ${keyId}`);
     console.log(`  Private Key: ${privateKeyB64}    <- SAVE THIS. It will NOT be stored.\n`);
     console.log(`  Public key written to: ${outPath}`);
-    console.log(`  Deploy this file to: https://${domain}/.well-known/notar-keys.json\n`);
-    console.log(`  Or add a DNS TXT record:`);
-    console.log(`    Name:  ${dns.fqdn}.${domain}`);
-    console.log(`    Value: ${dns.value}\n`);
+    const target = keysUrl(parsed.value, true);
+    if (target.ok) console.log(`  Deploy this file to: ${target.url}\n`);
+    const txtName = dnsName(parsed.value, keyId);
+    if (txtName) {
+      console.log(`  Or add a DNS TXT record:`);
+      console.log(`    Name:  ${txtName}`);
+      console.log(`    Value: ${dns.value}\n`);
+    }
   },
 });

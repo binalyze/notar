@@ -5,6 +5,8 @@ import {
   sign as notarSign,
   base64ToUint8,
   parseFrontMatter,
+  parsePublisher,
+  displaySafe,
 } from "../../index.js";
 import { unzipSync } from "fflate";
 
@@ -12,6 +14,13 @@ function signedFileName(name: string): string {
   const dot = name.lastIndexOf(".");
   if (dot === -1) return `${name}-signed`;
   return `${name.slice(0, dot)}-signed${name.slice(dot)}`;
+}
+
+function warnIfInvalidPublisher(publisher: string) {
+  const parsed = parsePublisher(publisher);
+  if (parsed.ok) return;
+  console.warn(`Warning: publisher "${displaySafe(publisher)}" is not a valid hostname (${parsed.reason}).`);
+  console.warn("         The file can only be verified with a pinned public key; keyless verification will reject it.");
 }
 
 async function readPrivateKey(): Promise<string> {
@@ -63,6 +72,7 @@ export const sign = defineCommand({
       const keyId = args["key-id"] || sigs?.[0]?.keyId || undefined;
       const publisher = args.publisher || sigs?.[0]?.publisher || String(parsed.data.author || "");
 
+      warnIfInvalidPublisher(publisher);
       const signed = await notarSign(content, pk, { keyId, publisher });
       writeFileSync(outPath, signed);
       console.log(`Signed: ${outPath}`);
@@ -90,6 +100,7 @@ export const sign = defineCommand({
       const keyId = args["key-id"] || existingKeyId || undefined;
       const author = args.author || existingAuthor || publisher;
 
+      warnIfInvalidPublisher(publisher || author);
       const signed = await notarSign(bytes, pk, {
         name: existingName || basename(filePath, ext),
         description: existingDesc || "",
